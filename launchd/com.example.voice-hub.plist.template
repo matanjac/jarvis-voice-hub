@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: substitution is done by `./setup.sh --launchd`, or by hand:
+     replace the four __PLACEHOLDERS__ and copy to ~/Library/LaunchAgents/ -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.example.voice-hub</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__REPO_DIR__/hub.py</string>
+  </array>
+  <key>WorkingDirectory</key><string>__REPO_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- must contain the directory of the `claude` CLI -->
+    <key>PATH</key><string>__CLAUDE_BIN_DIR__:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key><string>__HOME__</string>
+    <!-- optional overrides, e.g. VOICE_HUB_NAME, VOICE_HUB_PERMISSION_MODE -->
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>__HOME__/.config/voice-hub/state/hub.out</string>
+  <key>StandardErrorPath</key><string>__HOME__/.config/voice-hub/state/hub.out</string>
+</dict>
+</plist>

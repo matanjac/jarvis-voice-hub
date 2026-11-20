@@ -1,0 +1,7 @@
+# Python 3.12, Apple Silicon macOS. Versions are the ones this code was developed and run with.
+numpy>=2.0
+sounddevice>=0.5
+openwakeword==0.6.0     # also bundles the Silero VAD model; pulls in onnxruntime
+kokoro-onnx>=0.6        # Kokoro TTS via ONNX Runtime
+mlx-whisper>=0.4        # Whisper on Apple's MLX (Apple Silicon only)
+pyobjc-framework-Cocoa>=13   # the floating HUD panel (ui.py)

@@ -1,0 +1,20 @@
+# runtime state and secrets: never commit
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.log
+*.out
+*.err
+*.lock
+ui_events.jsonl
+brain_session.txt
+*.bak*
+.env
+.DS_Store
+# downloaded models and compiled helpers
+*.onnx
+*.bin
+bin/
+models/
+*.wav
