@@ -41,6 +41,7 @@
 | `native/defaultmic.c` | prints the current default input device name (CoreAudio) |
 | `native/micusers.c` | lists processes currently capturing audio input (CoreAudio, macOS 14.2+) |
 | `setup.sh` | venv, deps, Kokoro files, compiles the helpers, optional launchd plist |
+| `install.sh` | one-line bootstrap for a bare Mac: git/Homebrew/Python 3.12, clone, then runs `setup.sh` and `hub.py --check`; `--dry-run`, `-y`, `JARVIS_REF` |
 | `restart.sh` | SIGUSR1 to the pid in `state/hub.pid` |
 
 ## Control flow notes

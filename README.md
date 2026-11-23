@@ -8,10 +8,53 @@ An independent hobby project, not affiliated with, endorsed by, or sponsored by 
 
 *"jarvis-voice-hub" is a working name. The assistant's own name is configurable (default `Jarvis`).*
 
+## One-line install
+
+On an Apple Silicon Mac (M1 or newer, macOS 14+), once the repository is public, paste this into Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/matanjac/jarvis-voice-hub/main/install.sh | bash
+```
+
+**Read it before you run it.** Piping a script into `bash` means trusting it, so the safer
+two-step form is:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/matanjac/jarvis-voice-hub/main/install.sh
+less install.sh        # read it
+bash install.sh
+```
+
+`bash install.sh --dry-run` prints every step it would take and changes nothing; `--help` lists the
+options; `-y` skips the confirmation question (when piping: `curl ... | bash -s -- -y`). Set
+`JARVIS_REF=<tag or commit>` to pin a release instead of `main`.
+
+**What it installs:** the Xcode Command Line Tools (for git and the C compiler) and Homebrew if
+they are missing, Python 3.12 via Homebrew if missing, this repository cloned to
+`~/jarvis-voice-hub`, then runs `./setup.sh` (Python venv and packages, the Kokoro speech model, two
+small compiled mic helpers under `~/.config/jarvis-voice-hub`) and `hub.py --check`. About 2.5 GB
+of disk in total. It does not install Claude Code (it tells you how), does not start the hub, does
+not touch your shell profile, and never calls `sudo` itself.
+
+**What it asks for:** a `Continue? [y/N]` confirmation; a macOS dialog where you click Install for
+the Command Line Tools; and, only if Homebrew is missing, your Mac password inside Homebrew's own
+installer. At the end it prints how to grant microphone access to your terminal, the command to
+run the hub, what to say, what the panel should show, and the uninstall commands (printed, not run).
+
+It is safe to re-run: existing tools are detected and skipped, and an existing clone is updated
+with `git pull --ff-only`.
+
+The `curl` command works without a GitHub login only while the repository is public. If you have
+access to a private copy, authenticate with `gh auth login` and use
+`gh repo clone matanjac/jarvis-voice-hub ~/jarvis-voice-hub && cd ~/jarvis-voice-hub && ./setup.sh`
+(or the Claude Code prompt below).
+
+**Status:** the script passes `bash -n` and a dry run, but it has not yet been run on a clean Mac.
+
 ## Install with Claude Code
 
-The quickest way to try this on another Mac is to let Claude Code do the install for you, with one
-pasted prompt. Read "Security: read this first" below before you run the hub: the microphone is
+If you prefer, instead of the one-line install above, let Claude Code do the install for you with one
+pasted prompt (both paths end in the same `./setup.sh`). Read "Security: read this first" below before you run the hub: the microphone is
 an open door to the agent.
 
 **Status of these instructions:** the feature set was tested on the developer's Mac (macOS 27.0,
@@ -198,6 +241,8 @@ still not confined to the workspace folder, so keep sensitive files out of reach
 - About 2.5 GB of disk (Kokoro ~350 MB, Whisper ~1.6 GB on first use, Python packages)
 
 ## Install
+
+Shortest path: the [one-line install](#one-line-install). By hand:
 
 ```sh
 git clone <repo-url> jarvis-voice-hub && cd jarvis-voice-hub
