@@ -1,4 +1,4 @@
-"""voice-hub HUD: a small translucent always-on-top panel, hidden until the hub hears the
+"""jarvis-voice-hub HUD: a small translucent always-on-top panel, hidden until the hub hears the
 wake word. It tails ui_events.jsonl (written by hub.py) and shows the conversation live.
 Never takes focus. Exits when the hub process goes away.
 
@@ -411,7 +411,7 @@ class Controller(NSObject):
 
 def main():
     C.ensure_dirs()
-    lock = open(LOCK, "w")
+    lock = C.private_open(LOCK, "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:

@@ -18,3 +18,4 @@ brain_session.txt
 bin/
 models/
 *.wav
+!requirements.lock

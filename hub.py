@@ -1,4 +1,4 @@
-"""voice-hub: always-on wake word -> conversation -> Claude brain -> spoken reply.
+"""jarvis-voice-hub: always-on wake word -> conversation -> Claude brain -> spoken reply.
 
 Run:  python hub.py            (see README; Ctrl-C to stop)
       python hub.py --check    (verify config, models, helpers and the claude CLI; no mic needed)
@@ -39,7 +39,7 @@ BRAIN_PROMPT = (
 def log(msg):
     line = f"{time.strftime('%H:%M:%S')} {msg}"
     print(line, flush=True)
-    with open(LOG, "a") as f:
+    with C.private_open(LOG, "a") as f:
         f.write(line + "\n")
 
 
@@ -49,7 +49,7 @@ UI_EVENTS = C.UI_EVENTS
 def ui(kind, text=""):
     """Tell the floating transcript panel (ui.py) what is happening. Never raises."""
     try:
-        with open(UI_EVENTS, "a") as f:
+        with C.private_open(UI_EVENTS, "a") as f:
             f.write(json.dumps({"k": kind, "t": text}) + "\n")
     except Exception:
         pass
@@ -58,10 +58,10 @@ def ui(kind, text=""):
 def start_ui():
     """Launch the floating panel (it exits by itself when the hub is gone)."""
     try:
-        open(UI_EVENTS, "w").close()
+        C.private_open(UI_EVENTS, "w").close()
         ui("reset")                  # a panel that survived a restart must not stay stuck on screen
         subprocess.Popen([sys.executable, os.path.join(HERE, "ui.py"), str(os.getpid())],
-                         stdout=subprocess.DEVNULL, stderr=open(C.UI_ERR, "a"))
+                         stdout=subprocess.DEVNULL, stderr=C.private_open(C.UI_ERR, "a"))
     except Exception as e:
         log(f"ui panel failed to start: {e!r}")
 
@@ -134,14 +134,21 @@ class Brain:
         cmd = ["claude", "-p", "--input-format", "stream-json", "--output-format",
                "stream-json", "--verbose", "--model", C.BRAIN_MODEL,
                "--permission-mode", C.PERMISSION_MODE, "--append-system-prompt", BRAIN_PROMPT]
+        if C.ISOLATE_BRAIN:
+            cmd += ["--strict-mcp-config", "--setting-sources", "project",
+                    "--disable-slash-commands", "--tools", C.BRAIN_TOOLS]
+            if C.PERMISSION_MODE == "plan":
+                cmd += ["--disallowedTools", C.PLAN_DENY_TOOLS]
         if os.path.exists(C.BRAIN_SESSION):          # pick up where the last brain left off
-            cmd += ["--resume", open(C.BRAIN_SESSION).read().strip()]
+            sid = open(C.BRAIN_SESSION).read().strip()
+            if re.fullmatch(r"[0-9a-fA-F-]{8,64}", sid):
+                cmd += ["--resume", sid]
         self.proc = subprocess.Popen(cmd, cwd=C.WORKSPACE, stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                      text=True, bufsize=1)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
         log(f"brain started (pid {self.proc.pid}, model {C.BRAIN_MODEL}, "
-            f"permission mode {C.PERMISSION_MODE}, cwd {C.WORKSPACE})")
+            f"permission mode {C.PERMISSION_MODE}, isolated {C.ISOLATE_BRAIN}, cwd {C.WORKSPACE})")
 
     def _read(self, proc):
         for line in proc.stdout:
@@ -151,7 +158,7 @@ class Brain:
                 continue
             if e.get("type") == "result":
                 if e.get("session_id"):
-                    with open(C.BRAIN_SESSION, "w") as f:
+                    with C.private_open(C.BRAIN_SESSION, "w") as f:
                         f.write(e["session_id"])
                 self.results.put(e.get("result") or "")
         self.results.put(None)  # process ended
@@ -211,7 +218,7 @@ class Models:
         out = mlx_whisper.transcribe(audio, path_or_hf_repo=C.WHISPER_MODEL, language="en",
                                      condition_on_previous_text=False)
         allsegs = out.get("segments", [])
-        # record Whisper's own confidence signals (logging only, no filtering yet)
+        # record Whisper's own confidence signals (logged; clips below MIN_LOGPROB are rejected further down)
         self.stats = [(round(s.get("no_speech_prob", 0), 2), round(s.get("avg_logprob", 0), 2),
                        round(s.get("compression_ratio", 0), 2)) for s in allsegs]
         segs = [s for s in allsegs if s.get("compression_ratio", 0) <= 2.4]
@@ -516,6 +523,7 @@ def check():
     print(f"whisper model    : {C.WHISPER_MODEL}")
     print(f"brain            : claude -p, model {C.BRAIN_MODEL}, permission mode "
           f"{C.PERMISSION_MODE}, cwd {C.WORKSPACE}")
+    print(f"brain isolation  : {'on (tools: ' + C.BRAIN_TOOLS + ')' if C.ISOLATE_BRAIN else 'OFF - brain inherits your Claude Code settings and MCP servers'}")
     if C.PERMISSION_MODE in C.PERMISSIVE_MODES:
         print(f"WARNING: permission mode '{C.PERMISSION_MODE}' lets any voice in earshot "
               "run commands or edit files. Read README 'Security: read this first'.")
@@ -543,7 +551,7 @@ def check():
 if __name__ == "__main__":
     import fcntl
     ap = argparse.ArgumentParser(
-        description="voice-hub: always-on wake word + Whisper + Kokoro + a headless Claude Code "
+        description="jarvis-voice-hub: always-on wake word + Whisper + Kokoro + a headless Claude Code "
                     "brain. Configuration is via environment variables; see config.py and README.")
     ap.add_argument("--check", action="store_true",
                     help="verify configuration, models, helpers and the claude CLI, then exit")
@@ -551,13 +559,13 @@ if __name__ == "__main__":
     if args.check:
         sys.exit(check())
     C.ensure_dirs()
-    _lock = open(C.HUB_LOCK, "w")
+    _lock = C.private_open(C.HUB_LOCK, "w")
     try:
         fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)   # one hub at a time
     except OSError:
-        print("another voice-hub is already running", file=sys.stderr)
+        print("another jarvis-voice-hub is already running", file=sys.stderr)
         sys.exit(0)                    # clean exit, so launchd doesn't keep retrying
-    with open(C.HUB_PID, "w") as f:
+    with C.private_open(C.HUB_PID, "w") as f:
         f.write(str(os.getpid()))
     if C.PERMISSION_MODE in C.PERMISSIVE_MODES:
         log(f"WARNING: permission mode '{C.PERMISSION_MODE}' - anyone who can be heard can "

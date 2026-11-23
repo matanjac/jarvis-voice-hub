@@ -1,6 +1,6 @@
-"""Central configuration for voice-hub. Everything is overridable with environment variables.
+"""Central configuration for jarvis-voice-hub. Everything is overridable with environment variables.
 
-State lives under VOICE_HUB_HOME (default ~/.config/voice-hub):
+State lives under VOICE_HUB_HOME (default ~/.config/jarvis-voice-hub):
 
     models/      Kokoro model files (downloaded by setup.sh)
     bin/         small compiled C helpers (built by setup.sh)
@@ -9,7 +9,7 @@ State lives under VOICE_HUB_HOME (default ~/.config/voice-hub):
 """
 import os
 
-HOME_DIR = os.path.expanduser(os.environ.get("VOICE_HUB_HOME", "~/.config/voice-hub"))
+HOME_DIR = os.path.expanduser(os.environ.get("VOICE_HUB_HOME", "~/.config/jarvis-voice-hub"))
 MODELS_DIR = os.path.join(HOME_DIR, "models")
 BIN_DIR = os.path.join(HOME_DIR, "bin")
 STATE_DIR = os.path.join(HOME_DIR, "state")
@@ -32,13 +32,13 @@ MICUSERS = os.path.join(BIN_DIR, "micusers")
 # ---- identity -------------------------------------------------------------------------
 # The name the assistant uses for itself (spoken greeting, HUD title, system prompt, and the
 # "thank you <name>" goodbye). It is NOT the wake phrase; see WAKE_WORD_MODEL below.
-ASSISTANT_NAME = os.environ.get("VOICE_HUB_NAME", "Assistant")
+ASSISTANT_NAME = os.environ.get("VOICE_HUB_NAME", "Jarvis")
 
 # ---- wake word ------------------------------------------------------------------------
 # An openWakeWord model name (downloaded by openWakeWord) or a path to your own .onnx file.
-# The default is the pretrained model that ships with openWakeWord; its name is a third-party
-# trademark and the pretrained models are CC BY-NC-SA 4.0 (non-commercial). Swap it for one of
-# the other pretrained models ("alexa", "hey_mycroft", "hey_rhasspy") or train your own.
+# The default is the pretrained "hey_jarvis" model that ships with openWakeWord. The pretrained
+# models are CC BY-NC-SA 4.0 (non-commercial use only). Swap it for one of the other pretrained
+# models ("alexa", "hey_mycroft", "hey_rhasspy") or train your own (needed for commercial use).
 WAKE_WORD_MODEL = os.environ.get("VOICE_HUB_WAKE_MODEL", "hey_jarvis")
 WAKE_THRESHOLD = float(os.environ.get("VOICE_HUB_WAKE_THRESHOLD", "0.5"))
 
@@ -54,6 +54,15 @@ BRAIN_MODEL = os.environ.get("VOICE_HUB_MODEL", "sonnet")
 # manual, dontAsk, acceptEdits, auto, bypassPermissions. Read README "Security" first.
 PERMISSION_MODE = os.environ.get("VOICE_HUB_PERMISSION_MODE", "plan")
 PERMISSIVE_MODES = {"auto", "bypassPermissions", "acceptEdits"}
+# Brain isolation (on by default). The brain is started with --strict-mcp-config (none of your
+# global MCP servers), --setting-sources project (your user-level settings, allow rules, hooks
+# and CLAUDE.md are not loaded; only the scratch workspace's own .claude/ is), --disable-slash-
+# commands, and --tools limited to the allowlist below. In "plan" mode shell, edit, write and
+# web tools are also explicitly denied. Set VOICE_HUB_ISOLATE=0 to give the brain your normal
+# Claude Code setup (not recommended). Override the allowlist with VOICE_HUB_TOOLS (comma list).
+ISOLATE_BRAIN = os.environ.get("VOICE_HUB_ISOLATE", "1") != "0"
+BRAIN_TOOLS = os.environ.get("VOICE_HUB_TOOLS", "Read,Grep,Glob")
+PLAN_DENY_TOOLS = "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
 
 # ---- conversation timing --------------------------------------------------------------
 FOLLOWUP_WAIT = 7.0     # s of silence before the conversation ends
@@ -65,4 +74,16 @@ MIN_LOGPROB = -1.0      # reject clips whose Whisper avg_logprob is below this (
 
 def ensure_dirs():
     for d in (HOME_DIR, MODELS_DIR, BIN_DIR, STATE_DIR, WORKSPACE):
-        os.makedirs(d, exist_ok=True)
+        os.makedirs(d, mode=0o700, exist_ok=True)
+    os.chmod(STATE_DIR, 0o700)      # logs hold transcripts: owner only
+
+
+def private_open(path, mode="a"):
+    """open() that creates the file with 0600 (owner read/write only) and fixes older files."""
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_TRUNC if "w" in mode else os.O_APPEND)
+    fd = os.open(path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        pass
+    return os.fdopen(fd, "w" if "w" in mode else "a")

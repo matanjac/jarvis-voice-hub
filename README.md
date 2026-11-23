@@ -1,10 +1,12 @@
-# voice-hub
+# jarvis-voice-hub
 
 A hands-free, always-on voice layer for [Claude Code](https://claude.com/claude-code) on a Mac.
 Say a wake word, talk, and a headless Claude Code session (the "brain") answers out loud. A small
 floating panel (the HUD) shows what it heard and what it is doing.
 
-*"voice-hub" is a working name. The assistant's own name is configurable (default `Assistant`).*
+An independent hobby project, not affiliated with, endorsed by, or sponsored by Marvel, Disney, or any company named Jarvis.
+
+*"jarvis-voice-hub" is a working name. The assistant's own name is configurable (default `Jarvis`).*
 
 ## Security: read this first
 
@@ -19,19 +21,53 @@ that the microphone can hear can talk to that agent.**
   channel: anything it reads may be read aloud.
 - **Permissive modes turn both of those into remote code execution.** The original private
   version ran Claude Code in an auto-approve permission mode. **This public version defaults to
-  `plan` (read-only: analysis, no file edits, no shell commands).** Change it only if you accept
+  `plan` (intended read-only; enforced by tool allowlist and denylist, see Brain isolation).** Change it only if you accept
   the risk: `VOICE_HUB_PERMISSION_MODE` = `plan` (default), `manual`, `dontAsk`, `acceptEdits`,
   `auto`, `bypassPermissions`. The hub logs a warning at startup, and `--check` prints one, when
   a permissive mode is configured. Note that in the non-interactive `claude -p` mode used here
   nobody can click "Allow", so restrictive modes mean tools that need approval will not run.
 - **Run it in a scratch folder.** The brain's working directory defaults to
-  `~/.config/voice-hub/workspace`, an empty folder. Do not point `VOICE_HUB_WORKSPACE` at a
+  `~/.config/jarvis-voice-hub/workspace`, an empty folder. Do not point `VOICE_HUB_WORKSPACE` at a
   repository, your home folder or a folder with secrets. Do not run it in a session that holds
   credentials, and do not leave it running on a machine in a room with other people.
-- The transcript of everything it hears is logged locally to `~/.config/voice-hub/state/hub.log`.
+- The transcript of everything it hears is logged locally to `~/.config/jarvis-voice-hub/state/hub.log`.
   Audio itself is not saved, but transcripts, and what the brain says, are.
 
 Planned but **not implemented**: speaker verification, confirmation steps for risky actions.
+
+## Privacy
+
+What runs **locally on your Mac**: the wake word model (openWakeWord), voice-activity detection
+(Silero VAD), Whisper speech-to-text (mlx-whisper), and Kokoro text-to-speech. Microphone audio
+is processed in memory by these and is never written to disk or uploaded.
+
+What leaves your machine: **the transcript of what you say, and anything the Claude agent reads
+(files, tool output), is sent to Anthropic through the Claude CLI**, under your own account and
+Anthropic's terms. Model files are downloaded once from GitHub and Hugging Face.
+
+On disk: `~/.config/jarvis-voice-hub/state/` (created `0700`; log files `0600`) holds `hub.log`,
+which contains transcripts of what you said and what the assistant replied, plus the session id.
+Delete it whenever you like.
+
+## Behaviors you might not expect
+
+- **Replies from background sessions can be spoken unprompted.** Results that arrive while you
+  are not talking (for example a background Claude Code session finishing) are read aloud after a
+  short ping, at any time, even if others are in the room.
+- **It reacts to any voice or TV audio in the room.** There is no speaker verification; anything
+  that says the wake word, and what follows, is treated as you.
+- The brain process stays running after a conversation ends, and resumes its session on restart.
+- Whisper can mishear; transcripts are guesses.
+
+## Brain isolation
+
+The brain (`claude -p`) is started with `--strict-mcp-config` (none of your global MCP servers),
+`--setting-sources project` (your user-level settings, allow rules and hooks are not loaded),
+`--disable-slash-commands`, and `--tools Read,Grep,Glob` (override with `VOICE_HUB_TOOLS`). In the
+default `plan` mode, `Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch` are also explicitly
+denied. Set `VOICE_HUB_ISOLATE=0` to switch this off, in which case the brain inherits your normal
+Claude Code setup (not recommended). These flags exist in Claude Code 2.1.330. The file tools are
+still not confined to the workspace folder, so keep sensitive files out of reach of the account.
 
 ## What it does (and only this)
 
@@ -77,12 +113,12 @@ Planned but **not implemented**: speaker verification, confirmation steps for ri
 ## Install
 
 ```sh
-git clone <repo-url> voice-hub && cd voice-hub
+git clone <repo-url> jarvis-voice-hub && cd jarvis-voice-hub
 ./setup.sh                      # venv in ./.venv, deps, Kokoro files, compiled mic helpers
 .venv/bin/python hub.py --check # verifies config, models, helpers, claude CLI; no mic needed
 ```
 
-`setup.sh` puts everything it downloads or compiles under `~/.config/voice-hub`
+`setup.sh` puts everything it downloads or compiles under `~/.config/jarvis-voice-hub`
 (override with `VOICE_HUB_HOME`). Whisper downloads from Hugging Face the first time you wake the
 assistant.
 
@@ -93,22 +129,22 @@ assistant.
 ```
 
 Say the wake word, wait for the Tink, and talk. To start at login, `./setup.sh --launchd` writes
-`~/Library/LaunchAgents/com.example.voice-hub.plist` from `launchd/com.example.voice-hub.plist.template`
+`~/Library/LaunchAgents/com.example.jarvis-voice-hub.plist` from `launchd/com.example.jarvis-voice-hub.plist.template`
 (it does not load it; rename the label if you like, then `launchctl load` it).
 
 ### Configuration (environment variables; see `config.py`)
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `VOICE_HUB_NAME` | `Assistant` | name used in the greeting, HUD and system prompt |
+| `VOICE_HUB_NAME` | `Jarvis` | name used in the greeting, HUD and system prompt |
 | `VOICE_HUB_WAKE_MODEL` | `hey_jarvis` | openWakeWord model name or path to a `.onnx` file |
 | `VOICE_HUB_WAKE_THRESHOLD` | `0.5` | wake sensitivity |
 | `VOICE_HUB_PERMISSION_MODE` | `plan` | Claude Code permission mode for the brain (see Security) |
-| `VOICE_HUB_WORKSPACE` | `~/.config/voice-hub/workspace` | brain working directory |
+| `VOICE_HUB_WORKSPACE` | `~/.config/jarvis-voice-hub/workspace` | brain working directory |
 | `VOICE_HUB_MODEL` | `sonnet` | Claude model alias |
 | `VOICE_HUB_WHISPER` | `mlx-community/whisper-large-v3-turbo` | Whisper repo |
 | `KOKORO_VOICE`, `KOKORO_SPEED` | `af_heart`, `1.15` | TTS voice and speed |
-| `VOICE_HUB_HOME` | `~/.config/voice-hub` | models, helpers, logs, state |
+| `VOICE_HUB_HOME` | `~/.config/jarvis-voice-hub` | models, helpers, logs, state |
 
 The wake model name is only the *phrase you say*. The assistant name is separate: you can run
 `VOICE_HUB_NAME=Computer` with any wake model.
@@ -150,16 +186,16 @@ echo '{"k":"end"}' >> /tmp/events.jsonl
 
 ## Licences and attribution
 
-voice-hub itself is MIT (see `LICENSE`). Third-party pieces keep their own terms:
+jarvis-voice-hub itself is MIT (see `LICENSE`). Third-party pieces keep their own terms:
 
 | Component | Licence | Notes |
 |---|---|---|
 | [openWakeWord](https://github.com/dscripka/openWakeWord) (code) | Apache-2.0 | |
-| **openWakeWord pretrained wake-word models** (`hey_jarvis`, `alexa`, `hey_mycroft`, `hey_rhasspy`, ...) | **CC BY-NC-SA 4.0** | **Non-commercial, share-alike, attribution.** Per the openWakeWord README this is because of training data with unknown or restrictive licences. If you use or ship this commercially, train your own wake word (openWakeWord supports this) and set `VOICE_HUB_WAKE_MODEL`. The `hey_jarvis` name also refers to a third-party trademark; it is only the name of that model file. |
+| **openWakeWord pretrained wake-word models** (`hey_jarvis`, `alexa`, `hey_mycroft`, `hey_rhasspy`, ...) | **CC BY-NC-SA 4.0** | **Non-commercial, share-alike, attribution.** Per the openWakeWord README this is because of training data with unknown or restrictive licences. If you use or ship this commercially, train your own wake word (openWakeWord supports this) and set `VOICE_HUB_WAKE_MODEL`. `hey_jarvis` is only the name of that model file. |
 | Silero VAD (bundled in openWakeWord) | MIT, (c) Silero Team | licence text is in openWakeWord's `vad.py` |
 | openWakeWord feature models (melspectrogram, embedding) | embedding model derived from a Google TFHub module, Apache-2.0 per openWakeWord | |
 | [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) | MIT | |
-| Kokoro-82M model and voices | Apache-2.0 | downloaded by `setup.sh` from the kokoro-onnx GitHub release; attribution: hexgrad/Kokoro-82M |
+| Kokoro-82M model | Apache-2.0 | voices file licence not verified, see `THIRD_PARTY.md`; attribution: hexgrad/Kokoro-82M |
 | [mlx-whisper](https://github.com/ml-explore/mlx-examples) | MIT | |
 | Whisper weights (`mlx-community/whisper-large-v3-turbo`, converted from OpenAI Whisper) | MIT (OpenAI Whisper); the mlx-community model card has no explicit licence field | |
 | [PyObjC](https://github.com/ronaldoussoren/pyobjc) | MIT | |
@@ -171,4 +207,5 @@ date of preparation (2026-11-20); check upstream before relying on them, especia
 voice files and the Whisper conversion. Python dependencies pulled in transitively (numpy,
 onnxruntime, torch, scipy, ...) were not individually audited.
 
-Not affiliated with or endorsed by Anthropic or any wake-word, TTS or ASR project listed here.
+See `THIRD_PARTY.md` for per-component licences and what is not verified (e.g. the Kokoro voices file).
+Claude is a trademark of Anthropic. Not affiliated with or endorsed by Anthropic or any wake-word, TTS or ASR project listed here.

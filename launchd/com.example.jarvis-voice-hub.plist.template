@@ -4,7 +4,7 @@
      replace the four __PLACEHOLDERS__ and copy to ~/Library/LaunchAgents/ -->
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.example.voice-hub</string>
+  <key>Label</key><string>com.example.jarvis-voice-hub</string>
   <key>ProgramArguments</key>
   <array>
     <string>__PYTHON__</string>
@@ -22,7 +22,7 @@
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>30</integer>
   <key>ProcessType</key><string>Interactive</string>
-  <key>StandardOutPath</key><string>__HOME__/.config/voice-hub/state/hub.out</string>
-  <key>StandardErrorPath</key><string>__HOME__/.config/voice-hub/state/hub.out</string>
+  <key>StandardOutPath</key><string>__HOME__/.config/jarvis-voice-hub/state/hub.out</string>
+  <key>StandardErrorPath</key><string>__HOME__/.config/jarvis-voice-hub/state/hub.out</string>
 </dict>
 </plist>

@@ -60,7 +60,7 @@
 - **HUD events.** `reset | wake | listen | you | think | assistant | jobs | end`. A background
   thread in the hub runs `claude agents --json` every 6 s and emits `jobs` with the number of
   busy background sessions.
-- **State files** (all under `~/.config/voice-hub/state/`): `hub.log`, `ui.err`, `hub.pid`,
+- **State files** (all under `~/.config/jarvis-voice-hub/state/`): `hub.log`, `ui.err`, `hub.pid`,
   `brain_session.txt`, `ui_events.jsonl`, lock files. Delete `brain_session.txt` to forget the
   conversation.
 
