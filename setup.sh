@@ -15,6 +15,9 @@ for a in "$@"; do
 done
 
 [ "$(uname -s)" = "Darwin" ] || { echo "macOS only" >&2; exit 1; }
+[ "$(uname -m)" = "arm64" ] || { echo "Apple Silicon (M1 or newer) required: transcription uses MLX, which does not run on Intel Macs. Found: $(uname -m)" >&2; exit 1; }
+MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
+[ "${MACOS_MAJOR:-0}" -ge 14 ] || echo "warning: macOS 14 or newer is expected (found $(sw_vers -productVersion)); continuing anyway" >&2
 umask 077   # state files hold transcripts: owner only
 mkdir -p "$HOME_DIR/models" "$HOME_DIR/bin" "$HOME_DIR/state" "$HOME_DIR/workspace"
 chmod 700 "$HOME_DIR" "$HOME_DIR/state"
