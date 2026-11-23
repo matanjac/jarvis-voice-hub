@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template filled in by the hub.py install-service option (see service.py): it fills in the
+     placeholder words with real absolute paths and writes the result to
+     ~/Library/LaunchAgents/com.jarvis-voice-hub.plist. Preview without changing anything:
+     add the dry-run option. Never put two hyphens in a comment: XML forbids it. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jarvis-voice-hub</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__REPO_DIR__/hub.py</string>
+  </array>
+  <key>WorkingDirectory</key><string>__REPO_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- must contain the directory of the claude CLI -->
+    <key>PATH</key><string>__PATH__</string>
+    <key>HOME</key><string>__HOME__</string>__EXTRA_ENV__
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <!-- restart after a crash or kill, but not after a clean exit (exit code 0) -->
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <!-- never restart faster than every 10 s, so a bug cannot become a tight crash loop -->
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>__STATE_DIR__/hub.out</string>
+  <key>StandardErrorPath</key><string>__STATE_DIR__/hub.out</string>
+</dict>
+</plist>

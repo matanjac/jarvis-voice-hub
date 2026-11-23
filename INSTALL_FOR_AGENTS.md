@@ -15,11 +15,13 @@ yes before every non-trivial step (installing a tool, running `./setup.sh`, star
   to `~/.config/jarvis-voice-hub/profile` (via `hub.py --set-profile`, step 6) and never edit any
   other settings or permission file. Do not set `VOICE_HUB_PERMISSION_MODE`, `VOICE_HUB_ISOLATE`,
   `VOICE_HUB_TOOLS` or `VOICE_HUB_PROFILE`, and never touch the user's own Claude Code settings.
-- Do not start the hub (`hub.py` without `--check`) before the user confirms that macOS microphone
-  permission is ready for their terminal app (step 7).
+- Do not start the hub (`hub.py` without `--check`, or `--install-service`) before the user has
+  chosen the safety mode, `--check` has passed and the user has confirmed (step 7). Run the hub
+  only as the background service from step 7; never start it in your own session.
 - Do not improvise. If any command fails, stop, show the exact command and its exact error, give the
   matching fix from the "Troubleshooting" table in README.md (or say none is documented), and wait.
-- Do not use `rm -rf`. Do not start the hub in the background or through launchd.
+- Do not use `rm -rf`. Do not use `launchctl` yourself and do not hand-write plists: the only way
+  to install the background service is `hub.py --install-service` (step 7).
 - Do not log in to GitHub. The repository is public and is cloned over HTTPS.
 
 ## Step 1. Check the Mac
@@ -143,24 +145,48 @@ Report the result of each command in plain language. In the `--check` output, ev
 OK (optional helpers may be flagged), the `profile` line must show the mode the user chose (and
 the one-line summary and any warning must match it), and the `claude` CLI must be found. If something fails, apply the rule "do not improvise".
 
-## Step 7. Microphone permission, then start
+## Step 7. Install the background service, then microphone permission
 
-Do not start the hub yet. Explain: when the hub first uses the microphone, macOS shows a dialog
-asking whether the terminal app (Terminal, iTerm, or the app they are running Claude Code in) may
-access the microphone. They must click **Allow**. It can be fixed later under System Settings >
-Privacy & Security > Microphone by switching their terminal app on. The terminal only appears in
-that list after its first microphone request, so on a fresh Mac it may be missing until the first
-start. Ask: "Are you ready, and will you click Allow when the dialog appears?" Wait for yes.
+The hub runs as a normal user-level macOS LaunchAgent (label `com.jarvis-voice-hub`): in the
+background, no Terminal needed, started at every login, restarted if it crashes (not if it exits
+cleanly). Do this only after setup and `--check` have passed and the user has chosen the safety
+mode (step 5).
 
-Then start the hub in a foreground terminal so they can watch the log and stop it with Ctrl-C:
+First explain, then ask for confirmation. Say: "I will install the hub as a background service.
+macOS will then show a dialog saying that 'python' (or 'Python') wants to access the microphone;
+you must click Allow. The permission belongs to the python program inside this folder, not to your
+Terminal. Are you ready, and will you click Allow when it appears?" Optionally preview first with
+`.venv/bin/python hub.py --install-service --dry-run` (prints the plist and the launchctl commands,
+changes nothing). Wait for a yes, then run:
 
 ```sh
 cd ~/jarvis-voice-hub
-.venv/bin/python hub.py
+.venv/bin/python hub.py --install-service
 ```
 
-(If you cannot keep a foreground process running, give the user these two lines to run in their own
-Terminal window instead.) Do not use launchd or the background.
+It refuses to run as root, writes `~/Library/LaunchAgents/com.jarvis-voice-hub.plist`, checks it
+with `plutil -lint`, loads it with `launchctl bootstrap gui/<uid>` and prints exactly what it did.
+Report that output in plain language. If it says a hub is already running, ask the user to stop
+that one (Ctrl-C in its terminal) and run the command again.
+
+Walk the user through the microphone dialog:
+
+- Within a few seconds of the first start macOS shows "python wants to access the microphone". They
+  click **Allow**. The hub speaks "<name> is online" a moment later.
+- If they missed or denied it: System Settings > Privacy & Security > Microphone, switch the
+  Python entry on (it may only appear after the first attempt), then run `./restart.sh`.
+- Check the log: `tail -f ~/.config/jarvis-voice-hub/state/hub.log` (press Ctrl-C to stop watching;
+  that does not stop the hub). About 3 seconds after start it prints `mic check: level ... - ok`.
+  If it says `level 0.0000 - SILENT: microphone permission missing?`, the permission is missing.
+- Status at any time: `.venv/bin/python hub.py --service-status` (loaded or not, pid, last exit
+  status, last 10 log lines).
+
+Then tell them to say the wake word ("hey jarvis") and continue with step 8.
+
+To stop and remove the service: `.venv/bin/python hub.py --uninstall-service` (boots it out and
+deletes the plist). `./restart.sh` restarts it gracefully. Running `hub.py` in a Terminal window
+(foreground, Ctrl-C to stop) is only a troubleshooting option: stop the service first, because only
+one hub can use the microphone.
 
 ## Step 8. First-run test
 
@@ -175,13 +201,13 @@ their words with a "Heard clearly" tag, then SPEAKING while the reply is spoken 
 seconds of silence it plays a Bottle sound and hides. To test Cancel: ask something slow (for
 example "summarise every file in this folder") and press CANCEL in the panel; the panel shows
 CANCELLED and RETRY, and the next question still works. Saying "goodbye" ends the conversation.
-If the log shows `mic check ... SILENT`, microphone permission is missing: use the table in README.md.
+If the log shows `mic check ... SILENT`, microphone permission is missing: use step 7 or the table in README.md.
 
 ## Step 9. Post-install checklist
 
 Walk through the checklist in README.md under "After install: what to verify" and report which
-items passed and which were not tried. Also tell the user how to stop it (Ctrl-C in its terminal)
-and that the uninstall steps are in README.md ("Uninstall"); do not run them.
+items passed and which were not tried. Also tell the user how to stop it (`.venv/bin/python hub.py --uninstall-service`)
+and that the full uninstall steps are in README.md ("Uninstall"); do not run them.
 
 ## Step 10. Privacy summary (tell the user)
 

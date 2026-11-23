@@ -2,7 +2,7 @@
 # jarvis-voice-hub setup: venv + Python deps, Kokoro model files, and the small C mic helpers.
 #   ./setup.sh               full setup
 #   ./setup.sh --no-venv     skip creating the venv / pip install (use your own environment)
-#   ./setup.sh --launchd     also write ~/Library/LaunchAgents/com.example.jarvis-voice-hub.plist (not loaded)
+#   ./setup.sh --launchd     only prints the service command: hub.py --install-service
 # Override the install location with VOICE_HUB_HOME (default ~/.config/jarvis-voice-hub).
 set -eu
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -73,11 +73,7 @@ echo "== downloading openWakeWord base models"
   echo "   (skipped; the wheel normally bundles them)"
 
 if [ "$LAUNCHD" = 1 ]; then
-  CLAUDE=$(command -v claude || true); [ -n "$CLAUDE" ] || { echo "claude CLI not on PATH" >&2; exit 1; }
-  OUT="$HOME/Library/LaunchAgents/com.example.jarvis-voice-hub.plist"
-  sed -e "s|__PYTHON__|$PY|g" -e "s|__REPO_DIR__|$DIR|g" -e "s|__HOME__|$HOME|g" \
-      -e "s|__CLAUDE_BIN_DIR__|$(dirname "$CLAUDE")|g" "$DIR/launchd/com.example.jarvis-voice-hub.plist.template" > "$OUT"
-  echo "wrote $OUT (load with: launchctl load $OUT)"
+  echo "== --launchd is now: $PY $DIR/hub.py --install-service (run it after --check passes; add --dry-run to preview)"
 fi
 
 echo "== done. Next: $PY $DIR/hub.py --check"

@@ -19,7 +19,7 @@ Install https://github.com/matanjac/jarvis-voice-hub on this Mac. Clone it over 
 Claude explains each step and asks before it does it. It will install, only if missing and only
 after you say yes: Apple's Command Line Tools (you click Install), Homebrew, and Python 3.12; then it
 sets up this project in `~/jarvis-voice-hub` (about 2.5 GB). It will ask you to understand the
-security notes below and to allow microphone access for your terminal. It never uses `sudo` and
+security notes below and to allow microphone access for Python (a macOS dialog on first start). It never uses `sudo` and
 never sees your Mac password (Homebrew asks you for it directly, only if Homebrew is missing).
 
 Requirements: an Apple Silicon Mac (M1 or newer, macOS 14+) and [Claude Code](https://claude.com/claude-code)
@@ -55,7 +55,7 @@ first run on a second Mac is that test; treat any surprise as a bug to report.
 ### 2. A longer prompt (alternative to the short one at the top)
 
 ```text
-Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matanjac/jarvis-voice-hub into ~/jarvis-voice-hub over HTTPS (no GitHub login is needed; if the clone fails with an authentication error, stop and tell me, and do not look for or use any credentials). Read INSTALL_FOR_AGENTS.md and README.md (especially "Security: read this first" and "Install with Claude Code") and docs/ARCHITECTURE.md before doing anything else. Then run ./setup.sh and afterwards `.venv/bin/python hub.py --check`. If any step fails, do not improvise or work around it: report the exact failing command, its error output and the fix from the README troubleshooting table (or say that none is documented), and wait for me. Do not use sudo or run any script that is not in the repo. Do not change the security defaults unless I choose a different mode when you ask (INSTALL_FOR_AGENTS.md says how, and it only ever writes one word to ~/.config/jarvis-voice-hub/profile). Do not start the hub (`hub.py` without --check) until I confirm that macOS microphone permission is granted to my terminal app. Before that, tell me exactly what to expect: macOS shows a dialog asking whether the terminal app may access the microphone, which I must answer Allow; it can be granted or fixed afterwards under System Settings > Privacy & Security > Microphone by switching my terminal app on (the terminal appears in that list only after its first microphone request, so on a fresh Mac it may be missing until the first start). When I say I am ready, start the hub in a foreground terminal with `.venv/bin/python hub.py` (not launchd, not in the background) so I can watch the log and stop it with Ctrl-C. Then tell me what to try: say "hey jarvis", wait for the Tink sound, then ask "what time is it" and then "what is in this folder". The floating panel should appear at the bottom right, show LISTENING, then THINKING with a seconds timer and an activity line, show CANCEL while it works, show my words with a "Heard clearly" tag, speak the reply aloud and show SPEAKING; after a few seconds of silence it should play a Bottle sound and hide. Finish by walking me through the post-install checklist in the README and reporting which items passed.
+Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matanjac/jarvis-voice-hub into ~/jarvis-voice-hub over HTTPS (no GitHub login is needed; if the clone fails with an authentication error, stop and tell me, and do not look for or use any credentials). Read INSTALL_FOR_AGENTS.md and README.md (especially "Security: read this first" and "Install with Claude Code") and docs/ARCHITECTURE.md before doing anything else. Then run ./setup.sh and afterwards `.venv/bin/python hub.py --check`. If any step fails, do not improvise or work around it: report the exact failing command, its error output and the fix from the README troubleshooting table (or say that none is documented), and wait for me. Do not use sudo or run any script that is not in the repo. Do not change the security defaults unless I choose a different mode when you ask (INSTALL_FOR_AGENTS.md says how, and it only ever writes one word to ~/.config/jarvis-voice-hub/profile). Do not start the hub until `--check` has passed, I have chosen the safety mode and I confirm. Then, with my confirmation, install it as a background service with `.venv/bin/python hub.py --install-service` (a normal user LaunchAgent, no Terminal needed; do not use launchctl or hand-written plists). Before that, tell me exactly what to expect: macOS shows a dialog saying python (or Python) wants to access the microphone, which I must answer Allow; if I miss it, I can switch the Python entry on under System Settings > Privacy & Security > Microphone (it may only appear after the first attempt), and the log says the mic level is 0 when the permission is missing. Show me how to watch the log with tail -f, and how to stop and remove the service with `hub.py --uninstall-service`. Then tell me what to try: say "hey jarvis", wait for the Tink sound, then ask "what time is it" and then "what is in this folder". The floating panel should appear at the bottom right, show LISTENING, then THINKING with a seconds timer and an activity line, show CANCEL while it works, show my words with a "Heard clearly" tag, speak the reply aloud and show SPEAKING; after a few seconds of silence it should play a Bottle sound and hide. Finish by walking me through the post-install checklist in the README and reporting which items passed.
 ```
 
 ### 3. Troubleshooting
@@ -69,26 +69,27 @@ Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matan
 | `--check` shows `[MISSING]` Kokoro files | `setup.sh` did not finish | Rerun `./setup.sh` |
 | `--check`: `claude CLI` not on PATH | Claude Code not installed or not in this shell's PATH | Install Claude Code, open a new terminal, `claude --version` |
 | Brain gives no answer, log shows the brain restarting | `claude` not logged in | Run `claude` interactively once and sign in |
-| Log says `mic check ... SILENT: no mic permission?` | Terminal has no microphone permission | System Settings > Privacy & Security > Microphone: switch your terminal on, then quit and restart the terminal and the hub |
-| No permission dialog ever appeared and the terminal is not in the list | The dialog is shown on first microphone use, and it may have been dismissed | Start the hub once with you present, click Allow; if you clicked Don't Allow, switch it on in the list (or `tccutil reset Microphone`, which resets the microphone choice for ALL apps, and start again) |
+| No sound after install; log says `mic check ... SILENT: microphone permission missing?` | The Python program the service runs has no microphone permission | System Settings > Privacy & Security > Microphone: switch the Python entry on, then `./restart.sh`. Also check `hub.py --service-status` (is it loaded and running?) and `tail -f ~/.config/jarvis-voice-hub/state/hub.log` and `hub.out` |
+| Service installed but nothing is speaking and `--service-status` shows no pid | It crashed or `claude` was not found on the service PATH | Read `hub.out`; the service PATH includes `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`; re-run `--install-service` after installing Claude Code |
+| No permission dialog ever appeared and Python is not in the list | The dialog is shown on first microphone use, and it may have been dismissed | Run `--install-service` again (or `./restart.sh`) with you present and click Allow; if you clicked Don't Allow, switch it on in the list (or `tccutil reset Microphone`, which resets the microphone choice for ALL apps, and start again) |
 | Wake word never triggers | Wrong input device, too quiet, or threshold | Check the `listening on:` line in the log; speak clearly 1 m away; try `VOICE_HUB_WAKE_THRESHOLD=0.35` |
 | Wake word triggers but the transcript is empty or "Ignored noise" | Whisper rejected the clip (low confidence) | Speak louder and closer; see `hub.log` for the `avg_logprob` |
 | Long pause after the first wake | Whisper model (~1.6 GB) downloading from Hugging Face | Wait once; later wakes are fast |
 | No sound or no spoken reply | Output device muted, or Kokoro failed | Check volume; read the end of `~/.config/jarvis-voice-hub/state/hub.log` |
 | HUD never appears | `ui.py` failed to start | `cat ~/.config/jarvis-voice-hub/state/ui.err` |
-| "another jarvis-voice-hub is already running" | A previous hub is still running | Quit it with Ctrl-C in its terminal, or `./restart.sh` |
+| "another jarvis-voice-hub is already running" | A previous hub is still running | Quit it with Ctrl-C in its terminal, or `./restart.sh`; if the service is installed it is that one: `--uninstall-service` to stop it for good |
 | Replies say tools are unavailable or the brain refuses to edit files | Intended: the default `safe` profile is read-only | Leave it, or choose another profile (a security decision, see "Security") |
 
 ### 4. Uninstall
 
-Nothing is installed outside the repo folder and `~/.config/jarvis-voice-hub`, unless you ran
-`./setup.sh --launchd` (which only writes a plist and does not load it). To remove everything:
+Outside the repo folder and `~/.config/jarvis-voice-hub`, the only thing installed is the background
+service, if you ran `hub.py --install-service`. To remove everything:
 
-1. Stop the hub (Ctrl-C in its terminal).
-2. If you used launchd: `launchctl unload ~/Library/LaunchAgents/com.example.jarvis-voice-hub.plist` and delete that plist.
-3. Delete `~/.config/jarvis-voice-hub` (models, compiled helpers, logs with transcripts, session id).
-4. Delete the cloned repo folder (it contains the `.venv`).
-5. Optional: remove the terminal's microphone permission in System Settings > Privacy & Security > Microphone.
+1. `.venv/bin/python hub.py --uninstall-service` (stops the hub and deletes
+   `~/Library/LaunchAgents/com.jarvis-voice-hub.plist`; if you ran it in a terminal instead, Ctrl-C).
+2. Delete `~/.config/jarvis-voice-hub` (models, compiled helpers, logs with transcripts, session id).
+3. Delete the cloned repo folder (it contains the `.venv`).
+4. Optional: remove the Python entry's microphone permission in System Settings > Privacy & Security > Microphone.
 
 The delete commands are deliberately not scripted here: check the paths, then remove them yourself
 (Finder to the Trash, or `rm -r` on exactly those two folders).
@@ -229,7 +230,7 @@ still not confined to the workspace folder, so keep sensitive files out of reach
   process objects; without it the hub still works but never pauses for other mic users)
 - Python 3.12 (`brew install python@3.12`), Xcode command line tools (`clang`)
 - [Claude Code CLI](https://claude.com/claude-code) installed and signed in (`claude` on PATH)
-- A microphone and speaker; allow Microphone access for your terminal on first run
+- A microphone and speaker; allow Microphone access for Python when macOS asks on first start
 - About 2.5 GB of disk (Kokoro ~350 MB, Whisper ~1.6 GB on first use, Python packages)
 
 ## Install
@@ -246,15 +247,33 @@ git clone https://github.com/matanjac/jarvis-voice-hub.git ~/jarvis-voice-hub &&
 (override with `VOICE_HUB_HOME`). Whisper downloads from Hugging Face the first time you wake the
 assistant.
 
-## Run
+## Run (in the background, no Terminal needed)
 
 ```sh
-.venv/bin/python hub.py
+.venv/bin/python hub.py --install-service
 ```
 
-Say the wake word, wait for the Tink, and talk. To start at login, `./setup.sh --launchd` writes
-`~/Library/LaunchAgents/com.example.jarvis-voice-hub.plist` from `launchd/com.example.jarvis-voice-hub.plist.template`
-(it does not load it; rename the label if you like, then `launchctl load` it).
+This installs a normal user-level macOS LaunchAgent (`~/Library/LaunchAgents/com.jarvis-voice-hub.plist`,
+generated from `launchd/com.jarvis-voice-hub.plist.template` with your real paths) and starts it.
+The hub then runs in the background, starts at every login and restarts after a crash (but not
+after a clean exit; at most one restart per 10 seconds). It refuses to run as root, asks nothing,
+and prints what it did. `--install-service --dry-run` prints the plist and the `launchctl` commands
+without changing anything. Other commands: `hub.py --service-status` (loaded or not, pid, last exit
+status, last 10 log lines), `hub.py --uninstall-service` (stops it and deletes the plist),
+`./restart.sh` (graceful restart, also for the service).
+
+**What you will see on first start:** macOS shows a dialog saying "python" (or "Python") would
+like to access the microphone. Click **Allow**. With a background service macOS attributes the
+request to the python program in this folder's `.venv`, not to Terminal. If you missed it: System
+Settings > Privacy & Security > Microphone, switch the Python entry on (the entry may only appear
+after the first attempt), then `./restart.sh`. About 3 seconds after start the log prints
+`mic check: level ... - ok`; `level 0.0000 - SILENT: microphone permission missing?` means the
+permission is missing. Watch the log with `tail -f ~/.config/jarvis-voice-hub/state/hub.log`
+(`hub.out` next to it holds crash output). Then say the wake word and wait for the Tink.
+
+For troubleshooting you can still run it in a Terminal: stop the service first, then
+`.venv/bin/python hub.py` (Ctrl-C to stop; the microphone permission then belongs to that
+terminal app). `hub.py --check --mic` also records 1.5 s and warns if it is exactly silent.
 
 ### Configuration (environment variables; see `config.py`)
 

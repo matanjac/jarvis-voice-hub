@@ -40,9 +40,10 @@
 | `config.py` | all paths and settings, env-var overridable |
 | `native/defaultmic.c` | prints the current default input device name (CoreAudio) |
 | `native/micusers.c` | lists processes currently capturing audio input (CoreAudio, macOS 14.2+) |
-| `setup.sh` | venv, deps, Kokoro files, compiles the helpers, optional launchd plist |
+| `setup.sh` | venv, deps, Kokoro files, compiles the helpers |
+| `service.py` | `hub.py --install-service / --uninstall-service / --service-status`: fills `launchd/com.jarvis-voice-hub.plist.template`, `plutil -lint`, `launchctl bootstrap/bootout gui/<uid>`; stdlib only, refuses root, `--dry-run` changes nothing |
 | `INSTALL_FOR_AGENTS.md` | step-by-step install instructions for an AI coding agent (the recommended path: the user pastes a short prompt into Claude Code, which clones over HTTPS and follows this file) |
-| `restart.sh` | SIGUSR1 to the pid in `state/hub.pid` |
+| `restart.sh` | SIGUSR1 to the pid in `state/hub.pid`; if the service is installed but the hub is down, `launchctl kickstart` |
 
 ## Control flow notes
 
@@ -56,6 +57,13 @@
 - **Mic watchdog.** No audio for 2 s means reopen the current default device. Every ~3 s the
   default device name is compared; every ~1 s `micusers` is polled and the hub releases the mic
   while another process is using it.
+- **Background service.** The hub normally runs as a user LaunchAgent (`com.jarvis-voice-hub`):
+  `RunAtLoad`, `KeepAlive` only on non-zero exit (`SuccessfulExit` false), `ThrottleInterval` 10,
+  stdout/stderr to `state/hub.out` (0600), `PATH` including `~/.local/bin` so `claude` is found.
+  It has no TTY and the hub never reads stdin. The single-instance lock exits 0 when another hub
+  holds it, so launchd does not respawn a duplicate. macOS attributes the microphone permission to
+  the venv's python binary; the hub logs a `mic check` about 3 s after start and hints at a missing
+  permission when the level is exactly 0. `hub.py` in a terminal is a troubleshooting option.
 - **Restart.** `./restart.sh` sends `SIGUSR1`, which sets a flag; the hub re-executes (`os.execv`) at a safe point (idle loop
   or right after a spoken sentence). The file lock is close-on-exec, so the new process takes it.
 - **HUD events** (hub -> `state/ui_events.jsonl`, one `{"k": kind, "t": text}` per line):
