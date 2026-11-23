@@ -7,6 +7,8 @@ Standby: only the tiny openWakeWord model runs.
 On wake: Tink, Whisper + Kokoro load while you talk (mic audio is buffered meanwhile),
 then: transcribe -> brain (persistent `claude -p` session) -> speak -> follow-up window.
 Silence for C.FOLLOWUP_WAIT s (or "goodbye") -> Bottle, models unloaded, back to standby.
+While the brain thinks or a reply is spoken, the HUD's Cancel button or "<wake word>, stop /
+cancel / never mind / hold on" stops it: the brain subprocess is terminated, the session is kept.
 """
 import argparse, gc, json, os, queue, re, shutil, subprocess, sys, threading, time
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -22,6 +24,10 @@ NAME = C.ASSISTANT_NAME
 GOODBYES = {"goodbye", "bye", "that's all", "thats all", f"thank you {NAME.lower()}",
             f"thanks {NAME.lower()}", "stop", "never mind", "nevermind"}
 HALLUCINATIONS = {"", "thank you.", "thanks for watching!", "you", "bye.", "."}
+STOPPED = object()                         # Brain.ask result when the user cancelled the request
+RETRY = object()                           # Mic.utterance result when the HUD's Retry was pressed
+STOP_RE = re.compile(r"\b(stop|cancel|never ?mind|hold on)\b")
+HEARD_CLEAR = -0.6                         # avg_logprob at or above this = "heard clearly"
 
 BRAIN_PROMPT = (
     f"You are {NAME}, a voice assistant. The user talks to you out loud and hears your "
@@ -55,6 +61,65 @@ def ui(kind, text=""):
         pass
 
 
+class Commands:
+    """Tail ui_commands.jsonl (written by the HUD's buttons). Truncated at hub startup."""
+
+    def __init__(self):
+        self.off, self.stop, self.retry = 0, False, False
+
+    def reset(self):
+        """Called once at hub startup, after the state dir exists."""
+        self.off, self.stop, self.retry = 0, False, False
+        try:
+            C.private_open(C.UI_COMMANDS, "w").close()
+        except Exception:
+            pass
+
+    def poll(self):
+        try:
+            size = os.path.getsize(C.UI_COMMANDS)
+            if size < self.off:
+                self.off = 0
+            if size == self.off:
+                return
+            with open(C.UI_COMMANDS, "rb") as f:
+                f.seek(self.off)
+                chunk = f.read()
+            nl = chunk.rfind(b"\n")
+            if nl < 0:
+                return
+            self.off += nl + 1
+            for line in chunk[:nl].decode("utf-8", "replace").splitlines():
+                try:
+                    k = json.loads(line).get("k")
+                except ValueError:
+                    continue
+                if k == "stop":
+                    self.stop = True
+                elif k == "retry":
+                    self.retry = True
+        except Exception:
+            pass
+
+    def take_stop(self):
+        self.poll()
+        s, self.stop = self.stop, False
+        return s
+
+    def take_retry(self):
+        self.poll()
+        r, self.retry = self.retry, False
+        return r
+
+
+CMDS = Commands()
+
+
+def is_stop_phrase(text):
+    t = re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())
+    return bool(STOP_RE.search(re.sub(r"\s+", " ", t)))
+
+
 def start_ui():
     """Launch the floating panel (it exits by itself when the hub is gone)."""
     try:
@@ -67,20 +132,23 @@ def start_ui():
 
 
 def jobs_watcher():
-    """Every few seconds, count background Claude sessions that are busy and tell the panel."""
-    last = -1
+    """Every few seconds, list background Claude sessions that are busy and tell the panel."""
+    last = None
     while True:
         try:
             r = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True,
                                timeout=15)
             agents = json.loads(r.stdout or "[]")
-            n = sum(1 for a in agents
+            busy = [a for a in agents
                     if a.get("kind") == "background" and (a.get("status") == "busy"
-                                                          or a.get("state") == "working"))
-            if n != last:
-                last = n
-                ui("jobs", str(n))
-                log(f"background jobs working: {n}")
+                                                          or a.get("state") == "working")]
+            n = len(busy)
+            names = [re.sub(r"[^\w .-]", "", str(a.get("name") or a.get("title") or "job"))[:28]
+                     for a in busy][:3]
+            if (n, names) != last:
+                last = (n, names)
+                ui("jobs", json.dumps({"n": n, "names": names}))
+                log(f"background jobs working: {n} {names}")
         except Exception:
             pass
         time.sleep(6)
@@ -115,6 +183,7 @@ class Brain:
     def __init__(self):
         self.proc, self.results = None, queue.Queue()
         self.late_buf = []                     # results that arrived on their own
+        self.last_activity = ""
 
     def take_late(self):
         """Non-blocking: results that arrived without a pending question (e.g. a session
@@ -150,18 +219,51 @@ class Brain:
         log(f"brain started (pid {self.proc.pid}, model {C.BRAIN_MODEL}, "
             f"permission mode {C.PERMISSION_MODE}, isolated {C.ISOLATE_BRAIN}, cwd {C.WORKSPACE})")
 
+    ACTIVITY = {"Read": "Reading a file", "Grep": "Searching files", "Glob": "Searching files",
+                "Bash": "Running a command", "WebSearch": "Searching the web",
+                "WebFetch": "Reading a web page", "Agent": "Starting a helper",
+                "Task": "Starting a helper", "SendMessage": "Messaging a session",
+                "Edit": "Writing a file", "Write": "Writing a file"}
+
+    @classmethod
+    def activity_label(cls, name):
+        if name in cls.ACTIVITY:
+            return cls.ACTIVITY[name]
+        short = re.sub(r"[^\w .-]", " ", str(name).split("__")[-1].replace("_", " "))
+        return f"Using {short.strip()[:30] or 'a tool'}"
+
+    def _activity(self, e):
+        """Tool names only (never inputs or outputs) -> a short plain label for the panel."""
+        try:
+            if e.get("type") != "assistant":
+                return
+            for b in (e.get("message") or {}).get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    label = self.activity_label(b.get("name", ""))
+                    if label != self.last_activity:
+                        self.last_activity = label
+                        ui("activity", label)
+        except Exception:
+            pass
+
     def _read(self, proc):
         for line in proc.stdout:
             try:
                 e = json.loads(line)
             except ValueError:
                 continue
+            if proc is not self.proc:          # a cancelled brain: ignore whatever it still says
+                continue
+            self._activity(e)
             if e.get("type") == "result":
                 if e.get("session_id"):
                     with C.private_open(C.BRAIN_SESSION, "w") as f:
                         f.write(e["session_id"])
+                self.last_activity = ""
+                ui("activity", "")
                 self.results.put(e.get("result") or "")
-        self.results.put(None)  # process ended
+        if proc is self.proc:
+            self.results.put(None)  # process ended
 
     def reset(self):
         """Forget the conversation: next question starts a brand-new brain session."""
@@ -172,7 +274,20 @@ class Brain:
         self.proc = None
         log("brain reset")
 
-    def ask(self, text, timeout=180):
+    def cancel(self):
+        """Kill the running brain process. brain_session.txt stays, so the next question
+        resumes the same conversation."""
+        p, self.proc = self.proc, None
+        self.last_activity = ""
+        if p is not None and p.poll() is None:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+            threading.Thread(target=p.wait, daemon=True).start()   # reap it
+        log("brain cancelled by user")
+
+    def ask(self, text, timeout=180, should_stop=None):
         if self.proc is None or self.proc.poll() is not None:
             self._start()
         # Results that arrived on their own (e.g. a session it started reported back)
@@ -187,11 +302,24 @@ class Brain:
         msg = {"type": "user", "message": {"role": "user", "content": text}}
         self.proc.stdin.write(json.dumps(msg) + "\n")
         self.proc.stdin.flush()
-        try:
-            r = self.results.get(timeout=timeout)
-        except queue.Empty:
-            return "Sorry, that's taking too long. Check the screen."
-        return r if r is not None else "Sorry, my brain restarted. Say that again?"
+        deadline = time.time() + timeout
+        while True:
+            try:
+                r = self.results.get(timeout=0.02 if should_stop else 0.5)
+                return r if r is not None else "Sorry, my brain restarted. Say that again?"
+            except queue.Empty:
+                pass
+            if should_stop:
+                try:
+                    stop = should_stop()
+                except Exception as ex:
+                    log(f"stop check failed: {ex!r}")
+                    stop = False
+                if stop:
+                    self.cancel()
+                    return STOPPED
+            if time.time() >= deadline:
+                return "Sorry, that's taking too long. Check the screen."
 
 
 class Models:
@@ -226,12 +354,38 @@ class Models:
         text = re.sub(r"\b((?:\S+\s+){1,6}?\S+)(?:\s+\1\b){2,}", r"\1", text).strip()
         return "" if text.lower() in HALLUCINATIONS else text
 
-    def speak(self, text):
+    def speak(self, text, intr=None):
+        """Speak `text`. With an Interrupter, the HUD button or '<wake word>, stop' cuts it
+        short. Returns True if the user stopped it."""
         self._kt.join()
         samples, rate = self.kokoro.create(text, voice=C.KOKORO_VOICE, speed=C.KOKORO_SPEED,
                                            lang="en-us")
+        if intr is None:
+            sd.play(samples, rate)
+            sd.wait()
+            return False
+        dur = len(samples) / rate
+        played, seg = 0.0, time.time()           # seconds already played / start of this segment
         sd.play(samples, rate)
+        while played + (time.time() - seg) < dur + 0.15:
+            try:
+                if intr.button():
+                    sd.stop()
+                    return True
+                if intr.wake_fired():
+                    played += time.time() - seg
+                    sd.stop()                    # pause: also keeps our own voice out of the mic
+                    if intr.voice_stop():
+                        return True
+                    if played >= dur:
+                        break
+                    sd.play(samples[int(played * rate):], rate)       # not a stop: carry on
+                    seg = time.time()
+            except Exception as ex:
+                log(f"speak interrupt check failed: {ex!r}")
+                time.sleep(0.05)
         sd.wait()
+        return False
 
     def unload(self):
         self.kokoro = None
@@ -316,8 +470,11 @@ class Mic:
         x = f.astype(np.float32) / 32768
         return float(np.sqrt(np.mean(x * x)))
 
-    def utterance(self, wait):
-        """Wait up to `wait` s for speech; record until C.END_SILENCE of quiet."""
+    def utterance(self, wait, levels=True, watch_retry=False):
+        """Wait up to `wait` s for speech; record until C.END_SILENCE of quiet.
+        levels: stream the mic level to the HUD (<= 4/s). watch_retry: return RETRY if the
+        HUD's Retry button is pressed while we wait."""
+        last_lvl = 0.0
         # Speech = Silero says "voice" (works at any volume, e.g. across the room).
         pre, blocks, started, quiet, elapsed, onset = [], [], False, 0.0, 0.0, 0
         voiced = []
@@ -327,6 +484,12 @@ class Mic:
             f = self.frame()
             elapsed += step
             level = self.rms(f)
+            now = time.time()
+            if levels and now - last_lvl >= 0.25:
+                last_lvl = now
+                ui("level", f"{min(1.0, level / 0.1):.2f}")
+            if watch_retry and not started and CMDS.take_retry():
+                return RETRY
             prob = float(self.vad.predict(f, frame_size=640))
             speech = prob > 0.5 and level > 0.002
             if not started:
@@ -350,6 +513,54 @@ class Mic:
             quiet = 0.0 if still_talking else quiet + step
             if quiet >= C.END_SILENCE or elapsed >= C.MAX_UTTERANCE:
                 return np.concatenate(blocks).astype(np.float32) / 32768
+
+
+class Interrupter:
+    """Lets the user cancel while the brain thinks or the assistant talks: the HUD's Cancel
+    button, or the wake word followed by stop / cancel / never mind / hold on. A bare 'stop'
+    without the wake word does nothing here."""
+
+    def __init__(self, mic, wake, models):
+        self.mic, self.wake, self.models = mic, wake, models
+        self.quiet_until = 0.0
+
+    def button(self):
+        try:
+            return CMDS.take_stop()
+        except Exception:
+            return False
+
+    def wake_fired(self):
+        """Feed one mic frame (waits <= 50 ms) to the wake-word model."""
+        try:
+            f = self.mic.q.get(timeout=0.05)
+        except queue.Empty:
+            return False
+        if time.time() < self.quiet_until:     # just handled a false alarm (our own voice?)
+            return False
+        return max(self.wake.predict(f).values()) >= C.WAKE_THRESHOLD
+
+    def voice_stop(self):
+        """Wake word just fired: listen ~3 s for a stop phrase. True = stop requested."""
+        stop = False
+        try:
+            if not self.models.whisper_ready:
+                self.models.load_whisper()
+            audio = self.mic.utterance(3.0, levels=False)
+            text = self.models.transcribe(audio) if audio is not None else ""
+            low = bool(self.models.stats) and min(st[1] for st in self.models.stats) < C.MIN_LOGPROB
+            log(f"stop-listen heard {text!r}" + (" (low confidence, ignored)" if low else ""))
+            stop = bool(text) and not low and is_stop_phrase(text)
+        except Exception as e:
+            log(f"voice stop failed: {e!r}")
+        finally:
+            self.mic.drain()                   # don't hear ourselves
+            self.wake.reset()
+            self.quiet_until = time.time() + 1.5
+        return stop
+
+    def should_stop(self):
+        return self.button() or (self.wake_fired() and self.voice_stop())
 
 
 def other_mic_users():
@@ -401,6 +612,8 @@ def main():
     from openwakeword.model import Model
     wake = Model(wakeword_models=[C.WAKE_WORD_MODEL], inference_framework="onnx")
     brain, models, mic = Brain(), Models(), Mic()
+    CMDS.reset()
+    intr = Interrupter(mic, wake, models)
     start_ui()
     threading.Thread(target=jobs_watcher, daemon=True).start()
     log(f"standby - say the wake word ({C.WAKE_WORD_MODEL})")
@@ -435,7 +648,9 @@ def main():
                 for t in late:
                     log(f"late result, spoken: {t!r}")
                     ui("assistant", t)
-                    models.speak(t)
+                    if models.speak(t, intr):
+                        log("late speech stopped by user")
+                        break
                 ui("end")
                 models.unload()
                 mic.drain()
@@ -460,42 +675,72 @@ def main():
         models.load_kokoro_async()
         models.load_whisper()               # mic keeps buffering meanwhile
         wait = C.ONSET_WAIT
+        last_text, after_stop = "", False
         while True:
-            ui("listen")
-            audio = mic.utterance(wait)
+            if not after_stop:                   # after a cancel the panel keeps its Retry button
+                ui("listen")
+            audio = mic.utterance(wait, watch_retry=after_stop)
             if audio is None:
                 break
             t_end = time.time()
-            tick("Pop")                      # got you: recording stopped
-            text = models.transcribe(audio)
-            log(f"heard ({time.time() - t_end:.1f}s): {text!r}")
-            rms = float(np.sqrt(np.mean(audio * audio)))
-            log(f"  clip {len(audio) / RATE:.1f}s rms={rms:.4f} peak={float(np.abs(audio).max()):.3f} "
-                f"[no_speech, avg_logprob, compression]={models.stats}")
-            if models.stats and min(st[1] for st in models.stats) < C.MIN_LOGPROB:
-                log(f"  rejected (confidence {min(st[1] for st in models.stats)} < {C.MIN_LOGPROB}): {text!r}")
-                text = ""                    # Whisper was guessing at noise
-            if not text:
-                wait = C.FOLLOWUP_WAIT
-                continue
-            if text.lower().strip(" .!,") in GOODBYES:
-                break
-            if text.lower().strip(" .!,") in ("new conversation", "start over", "fresh start"):
-                brain.reset()
-                models.speak("Okay, fresh start.")
-                mic.drain()
-                wait = C.FOLLOWUP_WAIT
-                continue
+            if audio is RETRY:
+                text = last_text
+                log(f"retry: {text!r}")
+            else:
+                tick("Pop")                      # got you: recording stopped
+                text = models.transcribe(audio)
+                log(f"heard ({time.time() - t_end:.1f}s): {text!r}")
+                rms = float(np.sqrt(np.mean(audio * audio)))
+                log(f"  clip {len(audio) / RATE:.1f}s rms={rms:.4f} peak={float(np.abs(audio).max()):.3f} "
+                    f"[no_speech, avg_logprob, compression]={models.stats}")
+                lp = min(st[1] for st in models.stats) if models.stats else None
+                heard = "clear" if (lp is None or lp >= HEARD_CLEAR) else "unsure"
+                if lp is not None and lp < C.MIN_LOGPROB:
+                    log(f"  rejected (confidence {lp} < {C.MIN_LOGPROB}): {text!r}")
+                    text = ""                    # Whisper was guessing at noise
+                if not text:
+                    heard = "ignored"
+                ui("heard", heard)
+                if not text:
+                    wait = C.FOLLOWUP_WAIT
+                    continue
+                if text.lower().strip(" .!,") in GOODBYES:
+                    break
+                if text.lower().strip(" .!,") in ("new conversation", "start over", "fresh start"):
+                    brain.reset()
+                    models.speak("Okay, fresh start.")
+                    mic.drain()
+                    wait = C.FOLLOWUP_WAIT
+                    continue
+            after_stop = False
             ui("you", text)
-            reply = brain.ask(f"(voice) {text}")
-            for t in brain.take_late():
-                log(f"late result, spoken: {t!r}")
-                ui("assistant", t)
-                models.speak(t)
-            spoken = speakable(reply)
-            ui("assistant", spoken)
-            log(f"reply ({time.time() - t_end:.1f}s after you stopped): {spoken!r}")
-            models.speak(spoken)
+            last_text = text
+            CMDS.poll()
+            CMDS.stop = CMDS.retry = False       # clicks from before this question don't count
+            stopped = False
+            reply = brain.ask(f"(voice) {text}", should_stop=intr.should_stop)
+            if reply is STOPPED:
+                stopped = True
+            else:
+                for t in brain.take_late():
+                    log(f"late result, spoken: {t!r}")
+                    ui("assistant", t)
+                    if models.speak(t, intr):
+                        stopped = True
+                        break
+            if not stopped:
+                spoken = speakable(reply)
+                ui("assistant", spoken)
+                log(f"reply ({time.time() - t_end:.1f}s after you stopped): {spoken!r}")
+                stopped = models.speak(spoken, intr)
+            if stopped:
+                log("cancelled by user - back to listening")
+                ui("activity", "")
+                ui("stopped")
+                mic.drain()
+                wake.reset()
+                wait, after_stop = 15.0, True    # a little longer, so Retry stays reachable
+                continue
             if RESTART:
                 restart_now()                # sentence finished: now it's safe
             mic.drain()                      # don't hear ourselves

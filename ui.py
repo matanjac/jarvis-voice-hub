@@ -5,7 +5,15 @@ Never takes focus. Exits when the hub process goes away.
 Run by the hub:  python ui.py <hub_pid>
 Standalone demo: python ui.py --events /path/to/events.jsonl   (no hub needed; see README)
 Events (one JSON per line, {"k": kind, "t": text}):
-    reset | wake | listen | you | think | assistant | jobs | end
+  reset | wake | listen | you | think | assistant | end   conversation state
+  activity  t = short plain label of what the brain is doing ("Reading a file"); "" clears it
+  level     t = mic level "0".."1" (<= 4/s while listening), drawn as a thin bar by the avatar
+  heard     t = clear | unsure | ignored: tag shown for a few seconds after each transcription
+  stopped   the request was cancelled: status 'CANCELLED - LISTENING' plus a Retry button
+  jobs      t = '{"n": 2, "names": ["a", "b"]}' (or a plain integer string)
+Commands (panel -> hub, one JSON per line appended to ui_commands.jsonl in the state dir):
+  {"k":"stop"} from the Cancel button (shown while Thinking/Speaking),
+  {"k":"retry"} from the Retry button (shown after a cancel).
 """
 import fcntl
 import json
@@ -21,7 +29,7 @@ from AppKit import (
     NSWindowCollectionBehaviorCanJoinAllSpaces, NSWindowCollectionBehaviorFullScreenAuxiliary,
     NSWindowStyleMaskBorderless, NSWindowStyleMaskNonactivatingPanel,
     NSForegroundColorAttributeName, NSFontAttributeName, NSParagraphStyleAttributeName,
-    NSMutableParagraphStyle, NSView, NSBezierPath, NSGradient,
+    NSMutableParagraphStyle, NSView, NSBezierPath, NSGradient, NSButton,
 )
 from Foundation import NSObject, NSTimer
 import math
@@ -30,12 +38,14 @@ import config as C
 
 NAME = C.ASSISTANT_NAME
 EVENTS = C.UI_EVENTS
+COMMANDS = C.UI_COMMANDS
 LOCK = C.UI_LOCK
 HUB_PID = 0
 _args = sys.argv[1:]
 if "--events" in _args:                      # standalone mode: tail a given file, no hub
     i = _args.index("--events")
     EVENTS = os.path.expanduser(_args[i + 1])
+    COMMANDS = os.path.join(os.path.dirname(EVENTS), "ui_commands.jsonl")
     LOCK = EVENTS + ".lock"
     del _args[i:i + 2]
 if _args and _args[0].isdigit():
@@ -45,6 +55,7 @@ STAY_WHILE_WORKING = True # keep the panel up (status: Working) while background
 ALPHA = 0.94              # whole-panel opacity: lower = more see-through
 IDLE_HIDE = 60            # failsafe: hide if no event at all for this long (unless jobs are running)
 HIDE_AFTER = 2.5          # s after the conversation ends
+HEARD_SHOW = 4.0          # s the 'Heard clearly' tag stays visible
 
 
 def dbg(msg):
@@ -88,7 +99,7 @@ def arc(cx, cy, r, a0, a1, width, color):
 
 
 class OrbView(NSView):
-    """Orb avatar that changes with state: calm ring when listening,
+    """Arc-reactor style avatar that changes with state: calm ring when listening,
     fast amber spin when thinking, a pulsing waveform halo when speaking."""
 
     def drawRect_(self, rect):
@@ -125,7 +136,7 @@ class OrbView(NSView):
                 p.setLineWidth_(1.6)
                 rgba(c, 0.9).set()
                 p.stroke()
-        # inner triangle
+        # inner triangle (arc-reactor)
         tri = NSBezierPath.bezierPath()
         for i in range(3):
             ang = t * spin * 0.5 + i * 2 * math.pi / 3 + math.pi / 2
@@ -167,12 +178,104 @@ class HudFrame(NSView):
         return None            # never swallow clicks/drags
 
 
+class LevelView(NSView):
+    """Thin vertical mic-level bar beside the avatar."""
+
+    def drawRect_(self, rect):
+        b = self.bounds()
+        w, h = b.size.width, b.size.height
+        rgba(ACCENT, 0.15).set()
+        NSBezierPath.fillRect_(NSMakeRect(0, 0, w, h))
+        lv = max(0.0, min(1.0, getattr(self, "level", 0.0)))
+        rgba(ACCENT, 0.95).set()
+        NSBezierPath.fillRect_(NSMakeRect(0, 0, w, h * lv))
+
+    def hitTest_(self, pt):
+        return None
+
+
+class ClickButton(NSButton):
+    """Works on the first click even though the panel is non-activating and never key."""
+
+    def acceptsFirstMouse_(self, event):
+        return True
+
+    def mouseDownCanMoveWindow(self):
+        return False
+
+
+class HudButton(NSView):
+    """Theme-matched button drawn by hand so the label is exactly centered:
+    thin outlined rounded rect, tinted fill, monospace label. Clicks work on the first
+    click even though the panel is non-activating."""
+
+    def acceptsFirstMouse_(self, event):
+        return True
+
+    def mouseDownCanMoveWindow(self):
+        return False
+
+    def mouseDown_(self, event):
+        self.pressed = True
+        self.setNeedsDisplay_(True)
+
+    def mouseUp_(self, event):
+        self.pressed = False
+        self.setNeedsDisplay_(True)
+        try:
+            p = self.convertPoint_fromView_(event.locationInWindow(), None)
+            b = self.bounds()
+            if 0 <= p.x <= b.size.width and 0 <= p.y <= b.size.height and self.cb:
+                self.cb()
+        except Exception:
+            pass
+
+    def drawRect_(self, rect):
+        b = self.bounds()
+        w, h = b.size.width, b.size.height
+        col = self.color
+        r = NSMakeRect(1, 1, w - 2, h - 2)
+        path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(r, 3, 3)
+        rgba(col, 0.30 if self.pressed else 0.14).set()
+        path.fill()
+        rgba(col, 0.95).set()
+        path.setLineWidth_(1.2)
+        path.stroke()
+        font = NSFont.fontWithName_size_("Menlo-Bold", 10) or NSFont.boldSystemFontOfSize_(10)
+        attrs = {NSFontAttributeName: font, NSForegroundColorAttributeName: rgba(col, 1.0),
+                 "NSKern": 1.0}
+        txt = NSMutableAttributedString.alloc().initWithString_attributes_(self.title, attrs)
+        sz = txt.size()
+        txt.drawAtPoint_(((w - sz.width) / 2.0, (h - sz.height) / 2.0))
+
+
+class ButtonTarget(NSObject):
+    """Receives button clicks and appends a command line for the hub."""
+
+    def initWithView_(self, view):
+        self = objc.super(ButtonTarget, self).init()
+        self.view = view
+        return self
+
+    def stop_(self, sender):
+        self.view.send_command("stop")
+
+    def retry_(self, sender):
+        self.view.send_command("retry")
+
+
 class View:
     def __init__(self):
         self.offset = os.path.getsize(EVENTS) if os.path.exists(EVENTS) else 0
         self.hide_at = None
         self.last_event = time.time()
         self.jobs = 0
+        self.job_names = []
+        self.activity = ""
+        self.think_t0 = None
+        self.shown_secs = -1
+        self.level = 0.0
+        self.heard_until = 0.0
         self.ended = False
         self.ticks = 0
         self.build()
@@ -229,19 +332,44 @@ class View:
             f.setStringValue_(text)
             return f
 
-        self.title = label(NSMakeRect(124, H - 52, W - 140, 20), mono, rgba(ACCENT, 1.0),
+        self.title = label(NSMakeRect(124, H - 52, 150, 20), mono, rgba(ACCENT, 1.0),
                            NAME.upper())
-        self.status = label(NSMakeRect(124, H - 76, W - 140, 18), mono_s, rgba(ACCENT, 0.75))
-        self.sub = label(NSMakeRect(124, H - 98, W - 140, 16), mono_s, rgba(ACCENT, 0.45),
-                         "VOICE ASSISTANT // ONLINE")
-        for v in (self.title, self.status, self.sub):
+        self.status = label(NSMakeRect(124, H - 76, W - 124 - 96, 18), mono_s, rgba(ACCENT, 0.75))
+        self.sub = label(NSMakeRect(124, H - 96, W - 140, 16), mono_s, rgba(ACCENT, 0.45),
+                         "VOICE ASSISTANT // ONLINE")      # shows the brain's activity when busy
+        self.jobsline = label(NSMakeRect(124, H - 113, W - 140, 14), mono_s, rgba(ACCENT, 0.6))
+        self.jobsline.setFont_(NSFont.fontWithName_size_("Menlo", 10) or NSFont.systemFontOfSize_(10))
+        self.heard = label(NSMakeRect(W - 150, H - 50, 132, 16), mono_s, rgba(ACCENT, 0.8))
+        self.heard.setAlignment_(2)      # right
+        self.heard.setFont_(NSFont.fontWithName_size_("Menlo", 10) or NSFont.systemFontOfSize_(10))
+        for v in (self.title, self.status, self.sub, self.jobsline, self.heard):
             fx.addSubview_(v)
 
-        sv = NSScrollView.alloc().initWithFrame_(NSMakeRect(14, 16, W - 28, H - 128))
+        # mic level bar next to the avatar
+        self.levelbar = LevelView.alloc().initWithFrame_(NSMakeRect(113, H - 18 - 92, 4, 92))
+        self.levelbar.level = 0.0
+        self.levelbar.setHidden_(True)
+        fx.addSubview_(self.levelbar)
+
+        # Cancel / Retry buttons (same spot; only one visible at a time)
+        self.target = ButtonTarget.alloc().initWithView_(self)
+
+        def button(title, cmd, color):
+            b = HudButton.alloc().initWithFrame_(NSMakeRect(W - 112, H - 82, 96, 26))
+            b.title, b.color, b.pressed = title, color, False
+            b.cb = (lambda c=cmd: self.send_command(c))
+            b.setHidden_(True)
+            fx.addSubview_(b)
+            return b
+
+        self.stop_btn = button("\u25a0  CANCEL", "stop", (1.00, 0.45, 0.30))
+        self.retry_btn = button("RETRY", "retry", ACCENT)
+
+        sv = NSScrollView.alloc().initWithFrame_(NSMakeRect(14, 16, W - 28, H - 134))
         sv.setDrawsBackground_(False)
         sv.setHasVerticalScroller_(True)
         sv.setAutohidesScrollers_(True)
-        tv = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, W - 28, H - 128))
+        tv = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, W - 28, H - 134))
         tv.setEditable_(False)
         tv.setSelectable_(True)
         tv.setDrawsBackground_(False)
@@ -258,15 +386,27 @@ class View:
         self.set_status("")
 
     # -- rendering
+    def jobs_text(self):
+        if not self.jobs:
+            return ""
+        return "Working: " + ", ".join(self.job_names) if self.job_names else \
+            f"Working: {self.jobs} background job{'s' if self.jobs != 1 else ''}"
+
     def set_status(self, s):
+        self.status_req = s
         low = s.lower()
-        if self.jobs and (not s or low.startswith(("standby", "thinking"))):
+        stopped = low.startswith("cancelled")
+        if stopped:
+            state, text = "listen", "CANCELLED \u00b7 LISTENING"
+        elif self.jobs and (not s or low.startswith("standby")):
             state, text = "work", f"WORKING · {self.jobs} BACKGROUND JOB{'S' if self.jobs != 1 else ''}"
         else:
             state = ("listen" if low.startswith("listening") else
                      "think" if low.startswith("thinking") else
                      "speak" if low.startswith("speaking") else "idle")
             text = LABELS[state]
+            if state == "think" and self.think_t0:
+                text += f" {int(time.time() - self.think_t0)}s"
             if self.jobs:
                 text += f"  ·  {self.jobs} JOB{'S' if self.jobs != 1 else ''} RUNNING"
         self.state = state
@@ -274,11 +414,40 @@ class View:
         self.status.setStringValue_(text)
         color = COLORS[state]
         self.status.setTextColor_(rgba(color, 0.95))
+        # buttons / meter follow the state
+        busy = state in ("think", "speak")
+        self.stop_btn.setHidden_(not busy)
+        self.retry_btn.setHidden_(not stopped)
+        self.levelbar.setHidden_(not (state == "listen" or stopped))
+        if state != "listen" and not stopped:
+            self.level = 0.0
+        self.refresh_lines()
+
+    def refresh_lines(self):
+        """Activity line (replaces the subtitle while busy) and the background-jobs line."""
+        self.sub.setStringValue_(self.activity.upper() if self.activity
+                                 else "VOICE ASSISTANT // ONLINE")
+        self.sub.setTextColor_(rgba(COLORS["think"], 0.9) if self.activity else rgba(ACCENT, 0.45))
+        self.jobsline.setStringValue_(self.jobs_text())
+
+    def send_command(self, k):
+        try:
+            with C.private_open(COMMANDS, "a") as f:
+                f.write(json.dumps({"k": k}) + "\n")
+            dbg(f"command {k}")
+            self.stop_btn.setHidden_(True)      # no double clicks; the hub answers with an event
+            self.retry_btn.setHidden_(True)
+        except Exception as e:
+            dbg(f"command failed: {e!r}")
 
     def frame(self):
         self.orb.t = time.time() - self.t0
         if self.panel.isVisible():
             self.orb.setNeedsDisplay_(True)
+            if not self.levelbar.isHidden():
+                self.level *= 0.88                  # smooth fall-off between updates
+                self.levelbar.level = self.level
+                self.levelbar.setNeedsDisplay_(True)
 
     def add(self, who, text):
         para = NSMutableParagraphStyle.alloc().init()
@@ -308,19 +477,53 @@ class View:
 
     def handle(self, e):
         k, t = e.get("k"), e.get("t", "")
+        if k == "level":                    # frequent: no log, doesn't count as activity
+            try:
+                self.level = max(self.level * 0.5, min(1.0, float(t)))
+            except ValueError:
+                pass
+            return
         self.last_event = time.time()
         dbg(f"event {k} {t[:40]!r}")
         if k == "reset":
             self.clear()
             self.ended = True
             self.hide_at = None
+            self.activity, self.think_t0 = "", None
             self.panel.orderOut_(None)
+            return
+        if k == "activity":
+            self.activity = t[:60]
+            self.refresh_lines()
+            return
+        if k == "heard":
+            tag = {"clear": ("Heard clearly", (0.35, 0.95, 0.55)),
+                   "unsure": ("Unsure", (1.0, 0.75, 0.25)),
+                   "ignored": ("Ignored noise", (0.6, 0.65, 0.7))}.get(t)
+            if tag:
+                self.heard.setStringValue_(tag[0])
+                self.heard.setTextColor_(rgba(tag[1], 0.95))
+                self.heard_until = time.time() + HEARD_SHOW
+            return
+        if k == "stopped":
+            self.ended = False
+            self.activity, self.think_t0 = "", None
+            self.hide_at = None
+            if not self.panel.isVisible():
+                self.panel.orderFrontRegardless()
+            self.set_status("Cancelled")
             return
         if k == "jobs":
             try:
-                self.jobs = int(t)
-            except ValueError:
+                try:
+                    self.jobs, self.job_names = int(t), []     # older hub: plain count
+                except ValueError:
+                    d = json.loads(t)
+                    self.jobs = int(d.get("n", 0))
+                    self.job_names = [str(x)[:28] for x in (d.get("names") or [])][:3]
+            except Exception:
                 return
+            self.refresh_lines()
             if self.ended and not self.panel.isVisible() and self.jobs and STAY_WHILE_WORKING:
                 self.clear()
                 self.panel.orderFrontRegardless()
@@ -335,12 +538,14 @@ class View:
             self.ended = False
             self.clear()
             self.hide_at = None
+            self.activity, self.think_t0 = "", None
             self.set_status("Listening…")
             self.panel.orderFrontRegardless()
         elif k == "listen":
             self.set_status("Listening…")
         elif k == "you":
             self.add("you", t)
+            self.activity, self.think_t0 = "", time.time()
             self.set_status("Thinking…")
         elif k == "think":
             self.set_status("Thinking…")
@@ -350,15 +555,28 @@ class View:
                 self.panel.orderFrontRegardless()
             self.hide_at = None
             self.add("assistant", t)
+            self.activity, self.think_t0 = "", None
             self.set_status("Speaking…")
         elif k == "end":
             self.ended = True
+            self.activity, self.think_t0 = "", None
             self.set_status("Standby")
             self.hide_at = (None if (self.jobs and STAY_WHILE_WORKING)
                             else time.time() + HIDE_AFTER)
 
     def tick(self):
         self.ticks += 1
+        try:
+            if self.think_t0 and self.state == "think":
+                secs = int(time.time() - self.think_t0)
+                if secs != self.shown_secs:
+                    self.shown_secs = secs
+                    self.set_status(getattr(self, "status_req", "Thinking…"))
+            if self.heard_until and time.time() >= self.heard_until:
+                self.heard_until = 0.0
+                self.heard.setStringValue_("")
+        except Exception as e:
+            dbg(f"ui tick extras failed: {e!r}")
         if self.ticks % 20 == 0 and not alive(HUB_PID):
             NSApplication.sharedApplication().terminate_(None)
         if self.hide_at and time.time() >= self.hide_at:

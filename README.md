@@ -8,6 +8,88 @@ An independent hobby project, not affiliated with, endorsed by, or sponsored by 
 
 *"jarvis-voice-hub" is a working name. The assistant's own name is configurable (default `Jarvis`).*
 
+## Install with Claude Code
+
+The quickest way to try this on another Mac is to let Claude Code do the install for you, with one
+pasted prompt. Read "Security: read this first" below before you run the hub: the microphone is
+an open door to the agent.
+
+**Status of these instructions:** the feature set was tested on the developer's Mac (macOS 27.0,
+Apple Silicon). **The full install flow below has not yet been tested on a clean machine.** The
+first run on a second Mac is that test; treat any surprise as a bug to report.
+
+### 1. Prerequisites (you do these first)
+
+- Apple Silicon Mac (M1 or newer). Developed on macOS 27.0; README minimum is macOS 14.2, which
+  has not been tried.
+- Xcode command line tools: `xcode-select --install` (needed for `clang`, `git`).
+- [Homebrew](https://brew.sh), then `brew install python@3.12 git gh`.
+- Python 3.12 available as `python3.12` (`python3.12 --version`).
+- The Claude Code CLI installed and logged in: run `claude` once and complete the sign-in, then
+  check `claude --version` works in a new terminal window.
+- git. If this repository is private, authenticate GitHub on that Mac first: `gh auth login`
+  (choose GitHub.com, HTTPS, log in with the browser), then check `gh auth status`.
+- A microphone and speaker, about 2.5 GB free disk, and internet access (models download from
+  GitHub and Hugging Face).
+- You sitting at that Mac: the first run needs you to click a macOS permission dialog.
+
+### 2. The prompt (paste into Claude Code on the new Mac)
+
+```text
+Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matanjac/jarvis-voice-hub into ~/jarvis-voice-hub (if the clone fails with an authentication error, stop and tell me to run `gh auth login`, then retry; do not look for or use any other credentials). Read README.md (especially "Security: read this first" and "Install with Claude Code") and docs/ARCHITECTURE.md before doing anything else. Then run ./setup.sh and afterwards `.venv/bin/python hub.py --check`. If any step fails, do not improvise or work around it: report the exact failing command, its error output and the fix from the README troubleshooting table (or say that none is documented), and wait for me. Do not change the security defaults: leave the permission mode at `plan`, leave brain isolation on, and do not set VOICE_HUB_PERMISSION_MODE, VOICE_HUB_ISOLATE or VOICE_HUB_TOOLS. Do not start the hub (`hub.py` without --check) until I confirm that macOS microphone permission is granted to my terminal app. Before that, tell me exactly what to expect: macOS shows a dialog asking whether the terminal app may access the microphone, which I must answer Allow; it can be granted or fixed afterwards under System Settings > Privacy & Security > Microphone by switching my terminal app on (the terminal appears in that list only after its first microphone request, so on a fresh Mac it may be missing until the first start). When I say I am ready, start the hub in a foreground terminal with `.venv/bin/python hub.py` (not launchd, not in the background) so I can watch the log and stop it with Ctrl-C. Then tell me what to try: say "hey jarvis", wait for the Tink sound, then ask "what time is it" and then "what is in this folder". The floating panel should appear at the bottom right, show LISTENING, then THINKING with a seconds timer and an activity line, show CANCEL while it works, show my words with a "Heard clearly" tag, speak the reply aloud and show SPEAKING; after a few seconds of silence it should play a Bottle sound and hide. Finish by walking me through the post-install checklist in the README and reporting which items passed.
+```
+
+### 3. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `setup.sh`: `python3.12 not found` | Python 3.12 missing | `brew install python@3.12`, open a new terminal |
+| `setup.sh`: `clang: command not found` or a dialog about developer tools | Xcode command line tools missing | `xcode-select --install`, wait, rerun `./setup.sh` |
+| `git clone` asks for a password or says repository not found | Repo is private and GitHub is not authenticated | `gh auth login`, `gh auth status`, clone again |
+| `checksum mismatch` for a Kokoro file | Interrupted or changed download | Rerun `./setup.sh` (bad files are discarded); if it persists, upstream changed the file, report it, do not edit the checksum blindly |
+| `--check` shows `[MISSING]` Kokoro files | `setup.sh` did not finish | Rerun `./setup.sh` |
+| `--check`: `claude CLI` not on PATH | Claude Code not installed or not in this shell's PATH | Install Claude Code, open a new terminal, `claude --version` |
+| Brain gives no answer, log shows the brain restarting | `claude` not logged in | Run `claude` interactively once and sign in |
+| Log says `mic check ... SILENT: no mic permission?` | Terminal has no microphone permission | System Settings > Privacy & Security > Microphone: switch your terminal on, then quit and restart the terminal and the hub |
+| No permission dialog ever appeared and the terminal is not in the list | The dialog is shown on first microphone use, and it may have been dismissed | Start the hub once with you present, click Allow; if you clicked Don't Allow, switch it on in the list (or `tccutil reset Microphone`, which resets the microphone choice for ALL apps, and start again) |
+| Wake word never triggers | Wrong input device, too quiet, or threshold | Check the `listening on:` line in the log; speak clearly 1 m away; try `VOICE_HUB_WAKE_THRESHOLD=0.35` |
+| Wake word triggers but the transcript is empty or "Ignored noise" | Whisper rejected the clip (low confidence) | Speak louder and closer; see `hub.log` for the `avg_logprob` |
+| Long pause after the first wake | Whisper model (~1.6 GB) downloading from Hugging Face | Wait once; later wakes are fast |
+| No sound or no spoken reply | Output device muted, or Kokoro failed | Check volume; read the end of `~/.config/jarvis-voice-hub/state/hub.log` |
+| HUD never appears | `ui.py` failed to start | `cat ~/.config/jarvis-voice-hub/state/ui.err` |
+| "another jarvis-voice-hub is already running" | A previous hub is still running | Quit it with Ctrl-C in its terminal, or `./restart.sh` |
+| Replies say tools are unavailable or the brain refuses to edit files | Intended: default `plan` mode is read-only | Leave it. Changing it is a security decision, see "Security" |
+
+### 4. Uninstall
+
+Nothing is installed outside the repo folder and `~/.config/jarvis-voice-hub`, unless you ran
+`./setup.sh --launchd` (which only writes a plist and does not load it). To remove everything:
+
+1. Stop the hub (Ctrl-C in its terminal).
+2. If you used launchd: `launchctl unload ~/Library/LaunchAgents/com.example.jarvis-voice-hub.plist` and delete that plist.
+3. Delete `~/.config/jarvis-voice-hub` (models, compiled helpers, logs with transcripts, session id).
+4. Delete the cloned repo folder (it contains the `.venv`).
+5. Optional: remove the terminal's microphone permission in System Settings > Privacy & Security > Microphone.
+
+The delete commands are deliberately not scripted here: check the paths, then remove them yourself
+(Finder to the Trash, or `rm -r` on exactly those two folders).
+
+### 5. After install: what to verify
+
+- [ ] `hub.py --check` has no `[MISSING]` lines except the optional helpers, and prints permission mode `plan`.
+- [ ] The log shows `mic check: level ... - ok`, not `SILENT`.
+- [ ] You hear "Jarvis is online." at start, and the wake word gives a Tink and the panel shows LISTENING.
+- [ ] After you speak, the panel shows your words with a tag ("Heard clearly" or "Unsure") and the log shows `heard (...)`.
+- [ ] The reply is spoken aloud and shown, the panel shows an activity line and a THINKING timer while the brain works.
+- [ ] Cancel: ask something slow ("summarise every file in this folder"), press CANCEL in the panel (and, separately, say "hey jarvis, never mind"): speech stops, the panel shows `CANCELLED · LISTENING` and RETRY, and a new question still works in the same conversation.
+- [ ] Background reply: start a background Claude Code session from another terminal that finishes after a minute; the panel shows its name under "Working", and when it reports back a Ping plays and the result is spoken (or nothing is, if it replies `(silent)`).
+- [ ] Say "goodbye": Bottle sound, panel hides.
+
+Not tested on a clean machine: the whole of this section, the microphone-permission dialog flow,
+`setup.sh` from a fresh checkout, the Cancel/background-reply checks with real audio on this
+public repository (the cancel logic and HUD were exercised with synthetic events and a fake brain
+process, not live audio).
+
 ## Security: read this first
 
 **This program connects a microphone to an AI agent that can be given tools. Anyone or anything
@@ -98,8 +180,13 @@ still not confined to the workspace folder, so keep sensitive files out of reach
   dictation) is using it (via the `micusers` helper).
 - **Graceful restart:** `./restart.sh` sends SIGUSR1; the hub finishes the sentence it is
   speaking, then re-executes itself.
-- **HUD:** floating panel, see below. It also shows how many background Claude Code sessions are
-  working (polled from `claude agents --json`).
+- **Cancel:** the HUD's CANCEL button, or the wake word followed by "stop", "cancel", "never mind"
+  or "hold on", stops the brain and any speech while it thinks or talks. The brain process is
+  terminated but the session is kept; a RETRY button re-sends your last request.
+- **HUD:** floating panel, see below. It shows a live activity line from the brain's tool events
+  ("Reading a file"), a THINKING timer, a mic level bar, a "Heard clearly / Unsure / Ignored noise"
+  tag per transcription, and the names of working background Claude Code sessions (polled from
+  `claude agents --json`).
 
 ## Requirements
 
@@ -155,7 +242,9 @@ The wake model name is only the *phrase you say*. The assistant name is separate
 and never takes focus. The hub launches it and feeds it through an append-only event file
 (`state/ui_events.jsonl`, lines like `{"k": "you", "t": "..."}`). It stays hidden until the wake
 word, then shows an orb whose animation follows the state (STANDBY, LISTENING, THINKING,
-SPEAKING, WORKING), plus the live transcript of you and the assistant. It hides a few seconds
+SPEAKING, WORKING), plus the live transcript of you and the assistant, a CANCEL button while it
+thinks or speaks (status then reads `CANCELLED · LISTENING` with a RETRY button), a live activity
+line, a mic level bar and the transcription tag. It hides a few seconds
 after the conversation ends, stays up while background Claude Code jobs are running, and exits by
 itself when the hub is gone.
 
@@ -166,8 +255,12 @@ Try it without a microphone or hub:
 echo '{"k":"wake"}' >> /tmp/events.jsonl
 echo '{"k":"you","t":"list my sessions"}' >> /tmp/events.jsonl
 echo '{"k":"assistant","t":"You have two sessions."}' >> /tmp/events.jsonl
+echo '{"k":"activity","t":"Reading a file"}' >> /tmp/events.jsonl   # then watch THINKING tick
+echo '{"k":"stopped"}' >> /tmp/events.jsonl                           # CANCELLED + Retry
 echo '{"k":"end"}' >> /tmp/events.jsonl
 ```
+
+The event and command formats are documented in `docs/ARCHITECTURE.md`.
 
 ## Known limitations
 
@@ -182,7 +275,7 @@ echo '{"k":"end"}' >> /tmp/events.jsonl
 - The wake word model is a generic pretrained one, with the false accepts and misses that implies.
 - `hub.py` was developed against one machine and one Claude Code version; expect rough edges.
   It was verified here without a microphone (compile, `--check`, setup, HUD with synthetic
-  events); the live audio path was not re-tested after the cleanup for publishing.
+  events, a fake brain process for the cancel logic); the live audio path, including Cancel and voice cancel, was not re-tested on this public copy.
 
 ## Licences and attribution
 

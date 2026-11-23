@@ -18,6 +18,7 @@ WORKSPACE = os.path.expanduser(os.environ.get("VOICE_HUB_WORKSPACE",
 
 LOG = os.path.join(STATE_DIR, "hub.log")
 UI_EVENTS = os.path.join(STATE_DIR, "ui_events.jsonl")
+UI_COMMANDS = os.path.join(STATE_DIR, "ui_commands.jsonl")   # HUD buttons -> hub
 UI_ERR = os.path.join(STATE_DIR, "ui.err")
 BRAIN_SESSION = os.path.join(STATE_DIR, "brain_session.txt")
 HUB_PID = os.path.join(STATE_DIR, "hub.pid")
