@@ -41,7 +41,8 @@
 | `native/defaultmic.c` | prints the current default input device name (CoreAudio) |
 | `native/micusers.c` | lists processes currently capturing audio input (CoreAudio, macOS 14.2+) |
 | `setup.sh` | venv, deps, Kokoro files, compiles the helpers, optional launchd plist |
-| `install.sh` | one-line bootstrap for a bare Mac: git/Homebrew/Python 3.12, clone, then runs `setup.sh` and `hub.py --check`; `--dry-run`, `-y`, `JARVIS_REF` |
+| `INSTALL_FOR_AGENTS.md` | step-by-step install instructions for an AI coding agent (the recommended path: the user pastes a short prompt into Claude Code, which clones over HTTPS and follows this file) |
+| `install.sh` | optional script alternative (download, read, then run) for a bare Mac: git/Homebrew/Python 3.12, clone, then runs `setup.sh` and `hub.py --check`; `--dry-run`, `-y`, `JARVIS_REF` |
 | `restart.sh` | SIGUSR1 to the pid in `state/hub.pid` |
 
 ## Control flow notes

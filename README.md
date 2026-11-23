@@ -8,53 +8,47 @@ An independent hobby project, not affiliated with, endorsed by, or sponsored by 
 
 *"jarvis-voice-hub" is a working name. The assistant's own name is configurable (default `Jarvis`).*
 
-## One-line install
+## Install (the easy way): let Claude Code do it
 
-On an Apple Silicon Mac (M1 or newer, macOS 14+), once the repository is public, paste this into Terminal:
+Open Claude Code on your Mac and paste this:
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/matanjac/jarvis-voice-hub/main/install.sh | bash
+```text
+Install https://github.com/matanjac/jarvis-voice-hub on this Mac. Clone it over HTTPS (no GitHub account needed), then read INSTALL_FOR_AGENTS.md in the repo and follow it exactly. Ask me before installing anything. Never change the security settings. If anything fails, stop and tell me the exact error.
 ```
 
-**Read it before you run it.** Piping a script into `bash` means trusting it, so the safer
-two-step form is:
+Claude explains each step and asks before it does it. It will install, only if missing and only
+after you say yes: Apple's Command Line Tools (you click Install), Homebrew, and Python 3.12; then it
+sets up this project in `~/jarvis-voice-hub` (about 2.5 GB). It will ask you to understand the
+security notes below and to allow microphone access for your terminal. It never uses `sudo` and
+never sees your Mac password (Homebrew asks you for it directly, only if Homebrew is missing).
+
+Requirements: an Apple Silicon Mac (M1 or newer, macOS 14+) and [Claude Code](https://claude.com/claude-code)
+installed and logged in. The instructions Claude follows are in [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md); read them first if you like.
+
+**Status:** not yet tested end to end on a clean Mac.
+
+## Prefer a script? Read it first
+
+[`install.sh`](install.sh) does the same job as a shell script. Do not run a script you have not
+read: download it, read it, then run it.
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/matanjac/jarvis-voice-hub/main/install.sh
 less install.sh        # read it
+bash install.sh --dry-run   # prints every step, changes nothing
 bash install.sh
 ```
 
-`bash install.sh --dry-run` prints every step it would take and changes nothing; `--help` lists the
-options; `-y` skips the confirmation question (when piping: `curl ... | bash -s -- -y`). Set
-`JARVIS_REF=<tag or commit>` to pin a release instead of `main`.
-
-**What it installs:** the Xcode Command Line Tools (for git and the C compiler) and Homebrew if
-they are missing, Python 3.12 via Homebrew if missing, this repository cloned to
-`~/jarvis-voice-hub`, then runs `./setup.sh` (Python venv and packages, the Kokoro speech model, two
-small compiled mic helpers under `~/.config/jarvis-voice-hub`) and `hub.py --check`. About 2.5 GB
-of disk in total. It does not install Claude Code (it tells you how), does not start the hub, does
-not touch your shell profile, and never calls `sudo` itself.
-
-**What it asks for:** a `Continue? [y/N]` confirmation; a macOS dialog where you click Install for
-the Command Line Tools; and, only if Homebrew is missing, your Mac password inside Homebrew's own
-installer. At the end it prints how to grant microphone access to your terminal, the command to
-run the hub, what to say, what the panel should show, and the uninstall commands (printed, not run).
-
-It is safe to re-run: existing tools are detected and skipped, and an existing clone is updated
-with `git pull --ff-only`.
-
-The `curl` command works without a GitHub login only while the repository is public. If you have
-access to a private copy, authenticate with `gh auth login` and use
-`gh repo clone matanjac/jarvis-voice-hub ~/jarvis-voice-hub && cd ~/jarvis-voice-hub && ./setup.sh`
-(or the Claude Code prompt below).
-
-**Status:** the script passes `bash -n` and a dry run, but it has not yet been run on a clean Mac.
+`--help` lists the options; `-y` skips the confirmation question. Set `JARVIS_REF=<tag or commit>`
+to pin a release instead of `main`. It installs the Command Line Tools and Homebrew and Python 3.12
+if missing, clones to `~/jarvis-voice-hub`, runs `./setup.sh` and `hub.py --check`, and never calls
+`sudo` itself. It does not install Claude Code and does not start the hub. Re-running is safe.
+It has passed `bash -n` and a dry run but has not been run on a clean Mac.
 
 ## Install with Claude Code
 
-If you prefer, instead of the one-line install above, let Claude Code do the install for you with one
-pasted prompt (both paths end in the same `./setup.sh`). Read "Security: read this first" below before you run the hub: the microphone is
+This is the longer, manual-friendly version of the easy install at the top (the short prompt plus
+[INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md) is the recommended path; both end in the same `./setup.sh`). Read "Security: read this first" below before you run the hub: the microphone is
 an open door to the agent.
 
 **Status of these instructions:** the feature set was tested on the developer's Mac (macOS 27.0,
@@ -66,20 +60,20 @@ first run on a second Mac is that test; treat any surprise as a bug to report.
 - Apple Silicon Mac (M1 or newer). Developed on macOS 27.0; README minimum is macOS 14.2, which
   has not been tried.
 - Xcode command line tools: `xcode-select --install` (needed for `clang`, `git`).
-- [Homebrew](https://brew.sh), then `brew install python@3.12 git gh`.
+- [Homebrew](https://brew.sh), then `brew install python@3.12`.
 - Python 3.12 available as `python3.12` (`python3.12 --version`).
 - The Claude Code CLI installed and logged in: run `claude` once and complete the sign-in, then
   check `claude --version` works in a new terminal window.
-- git. If this repository is private, authenticate GitHub on that Mac first: `gh auth login`
-  (choose GitHub.com, HTTPS, log in with the browser), then check `gh auth status`.
+- git. No GitHub account or login is needed while the repository is public (clone over HTTPS).
+  Only for a private fork: `brew install gh`, `gh auth login`, `gh auth status` first.
 - A microphone and speaker, about 2.5 GB free disk, and internet access (models download from
   GitHub and Hugging Face).
 - You sitting at that Mac: the first run needs you to click a macOS permission dialog.
 
-### 2. The prompt (paste into Claude Code on the new Mac)
+### 2. A longer prompt (alternative to the short one at the top)
 
 ```text
-Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matanjac/jarvis-voice-hub into ~/jarvis-voice-hub (if the clone fails with an authentication error, stop and tell me to run `gh auth login`, then retry; do not look for or use any other credentials). Read README.md (especially "Security: read this first" and "Install with Claude Code") and docs/ARCHITECTURE.md before doing anything else. Then run ./setup.sh and afterwards `.venv/bin/python hub.py --check`. If any step fails, do not improvise or work around it: report the exact failing command, its error output and the fix from the README troubleshooting table (or say that none is documented), and wait for me. Do not use sudo or run any script that is not in the repo. Do not change the security defaults: leave the permission mode at `plan`, leave brain isolation on, and do not set VOICE_HUB_PERMISSION_MODE, VOICE_HUB_ISOLATE or VOICE_HUB_TOOLS. Do not start the hub (`hub.py` without --check) until I confirm that macOS microphone permission is granted to my terminal app. Before that, tell me exactly what to expect: macOS shows a dialog asking whether the terminal app may access the microphone, which I must answer Allow; it can be granted or fixed afterwards under System Settings > Privacy & Security > Microphone by switching my terminal app on (the terminal appears in that list only after its first microphone request, so on a fresh Mac it may be missing until the first start). When I say I am ready, start the hub in a foreground terminal with `.venv/bin/python hub.py` (not launchd, not in the background) so I can watch the log and stop it with Ctrl-C. Then tell me what to try: say "hey jarvis", wait for the Tink sound, then ask "what time is it" and then "what is in this folder". The floating panel should appear at the bottom right, show LISTENING, then THINKING with a seconds timer and an activity line, show CANCEL while it works, show my words with a "Heard clearly" tag, speak the reply aloud and show SPEAKING; after a few seconds of silence it should play a Bottle sound and hide. Finish by walking me through the post-install checklist in the README and reporting which items passed.
+Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matanjac/jarvis-voice-hub into ~/jarvis-voice-hub over HTTPS (no GitHub login is needed; if the clone fails with an authentication error, stop and tell me, and do not look for or use any credentials). Read INSTALL_FOR_AGENTS.md and README.md (especially "Security: read this first" and "Install with Claude Code") and docs/ARCHITECTURE.md before doing anything else. Then run ./setup.sh and afterwards `.venv/bin/python hub.py --check`. If any step fails, do not improvise or work around it: report the exact failing command, its error output and the fix from the README troubleshooting table (or say that none is documented), and wait for me. Do not use sudo or run any script that is not in the repo. Do not change the security defaults: leave the permission mode at `plan`, leave brain isolation on, and do not set VOICE_HUB_PERMISSION_MODE, VOICE_HUB_ISOLATE or VOICE_HUB_TOOLS. Do not start the hub (`hub.py` without --check) until I confirm that macOS microphone permission is granted to my terminal app. Before that, tell me exactly what to expect: macOS shows a dialog asking whether the terminal app may access the microphone, which I must answer Allow; it can be granted or fixed afterwards under System Settings > Privacy & Security > Microphone by switching my terminal app on (the terminal appears in that list only after its first microphone request, so on a fresh Mac it may be missing until the first start). When I say I am ready, start the hub in a foreground terminal with `.venv/bin/python hub.py` (not launchd, not in the background) so I can watch the log and stop it with Ctrl-C. Then tell me what to try: say "hey jarvis", wait for the Tink sound, then ask "what time is it" and then "what is in this folder". The floating panel should appear at the bottom right, show LISTENING, then THINKING with a seconds timer and an activity line, show CANCEL while it works, show my words with a "Heard clearly" tag, speak the reply aloud and show SPEAKING; after a few seconds of silence it should play a Bottle sound and hide. Finish by walking me through the post-install checklist in the README and reporting which items passed.
 ```
 
 ### 3. Troubleshooting
@@ -88,7 +82,7 @@ Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matan
 |---|---|---|
 | `setup.sh`: `python3.12 not found` | Python 3.12 missing | `brew install python@3.12`, open a new terminal |
 | `setup.sh`: `clang: command not found` or a dialog about developer tools | Xcode command line tools missing | `xcode-select --install`, wait, rerun `./setup.sh` |
-| `git clone` asks for a password or says repository not found | Repo is private and GitHub is not authenticated | `gh auth login`, `gh auth status`, clone again |
+| `git clone` asks for a password or says repository not found | The repository is not public yet, or it is a private fork | Check the URL; for a private fork only: `gh auth login`, `gh auth status`, clone again |
 | `checksum mismatch` for a Kokoro file | Interrupted or changed download | Rerun `./setup.sh` (bad files are discarded); if it persists, upstream changed the file, report it, do not edit the checksum blindly |
 | `--check` shows `[MISSING]` Kokoro files | `setup.sh` did not finish | Rerun `./setup.sh` |
 | `--check`: `claude CLI` not on PATH | Claude Code not installed or not in this shell's PATH | Install Claude Code, open a new terminal, `claude --version` |
@@ -242,10 +236,10 @@ still not confined to the workspace folder, so keep sensitive files out of reach
 
 ## Install
 
-Shortest path: the [one-line install](#one-line-install). By hand:
+Easiest path: [let Claude Code do it](#install-the-easy-way-let-claude-code-do-it). By hand:
 
 ```sh
-git clone <repo-url> jarvis-voice-hub && cd jarvis-voice-hub
+git clone https://github.com/matanjac/jarvis-voice-hub.git ~/jarvis-voice-hub && cd ~/jarvis-voice-hub
 ./setup.sh                      # venv in ./.venv, deps, Kokoro files, compiled mic helpers
 .venv/bin/python hub.py --check # verifies config, models, helpers, claude CLI; no mic needed
 ```
