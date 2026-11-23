@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # jarvis-voice-hub bootstrap installer for a Mac that has nothing installed.
 #
-#   curl -fsSL https://raw.githubusercontent.com/matanjac/jarvis-voice-hub/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/matanjac/jarvis-voice-hub/main/install.sh | bash -s -- -y
-#
-# Safer two-step form (read it first):
+# Read it first, then run it:
 #   curl -fsSLO https://raw.githubusercontent.com/matanjac/jarvis-voice-hub/main/install.sh
-#   less install.sh && bash install.sh
+#   less install.sh && bash install.sh --dry-run && bash install.sh
+# (The easier way is to let Claude Code do the install: see the top of README.md.)
 #
 # Everything lives inside main(), which is called on the very last line. If the download is cut
 # off, bash hits a syntax error before running anything, so a truncated script cannot half-run.
@@ -29,7 +27,7 @@ Usage: install.sh [-y|--yes] [--dry-run] [-h|--help]
   --dry-run   print every step it would take and change nothing (works on any machine)
   -h, --help  this text
 
-Piped from curl, pass flags like this:  curl -fsSL <url> | bash -s -- --dry-run
+Run it from a downloaded file (read it first); flags go after the file name, e.g.  bash install.sh --dry-run
 
 Environment:
   JARVIS_REF  branch, tag or commit to install (default: main), e.g. JARVIS_REF=v0.1.0
@@ -113,7 +111,7 @@ EOF
   else
     local ans=""
     if ! { : </dev/tty; } 2>/dev/null; then
-      die "no terminal to ask for confirmation. Re-run with -y:  curl -fsSL <url> | bash -s -- -y"
+      die "no terminal to ask for confirmation. Re-run with -y:  bash install.sh -y"
     fi
     printf 'Continue? [y/N] ' >/dev/tty
     read -r ans </dev/tty || ans=""
