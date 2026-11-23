@@ -177,10 +177,17 @@ EOF
 
   # ---- (4) clone or update ---------------------------------------------------------------
   step "Step 4/6: the code ($REPO_URL @ $REF -> $TARGET)"
-  if [ -e "$TARGET" ] && [ ! -d "$TARGET/.git" ]; then
-    die "$TARGET exists but is not a git checkout. Move it aside and re-run."
+  # If this script sits next to setup.sh and hub.py (a downloaded zip or a clone), use that folder.
+  LOCAL_COPY=0
+  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    _d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "$_d/setup.sh" ] && [ -f "$_d/hub.py" ]; then TARGET="$_d"; LOCAL_COPY=1; fi
   fi
-  if [ -d "$TARGET/.git" ]; then
+  if [ "$LOCAL_COPY" = 1 ]; then
+    say "   Running from a local copy at $TARGET: skipping the download."
+  elif [ -e "$TARGET" ] && [ ! -d "$TARGET/.git" ]; then
+    die "$TARGET exists but is not a git checkout. Move it aside and re-run."
+  elif [ -d "$TARGET/.git" ]; then
     say "   $TARGET already exists: updating."
     run git -C "$TARGET" fetch --tags origin
     run git -C "$TARGET" checkout "$REF"
