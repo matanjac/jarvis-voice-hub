@@ -27,24 +27,6 @@ installed and logged in. The instructions Claude follows are in [INSTALL_FOR_AGE
 
 **Status:** not yet tested end to end on a clean Mac.
 
-## Prefer a script? Read it first
-
-[`install.sh`](install.sh) does the same job as a shell script. Do not run a script you have not
-read: download it, read it, then run it.
-
-```sh
-curl -fsSLO https://raw.githubusercontent.com/matanjac/jarvis-voice-hub/main/install.sh
-less install.sh        # read it
-bash install.sh --dry-run   # prints every step, changes nothing
-bash install.sh
-```
-
-`--help` lists the options; `-y` skips the confirmation question. Set `JARVIS_REF=<tag or commit>`
-to pin a release instead of `main`. It installs the Command Line Tools and Homebrew and Python 3.12
-if missing, clones to `~/jarvis-voice-hub`, runs `./setup.sh` and `hub.py --check`, and never calls
-`sudo` itself. It does not install Claude Code and does not start the hub. Re-running is safe.
-It has passed `bash -n` and a dry run but has not been run on a clean Mac.
-
 ## Install with Claude Code
 
 This is the longer, manual-friendly version of the easy install at the top (the short prompt plus
