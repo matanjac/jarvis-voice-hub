@@ -78,8 +78,19 @@
   | `level` | mic level `0`..`1`, at most 4 per second | thin level bar beside the orb while listening |
   | `heard` | `clear` / `unsure` / `ignored` | tag "Heard clearly" / "Unsure" / "Ignored noise" for 4 s after each transcription (clear = avg_logprob >= -0.6) |
   | `stopped` | | request cancelled: status "CANCELLED - LISTENING" and a Retry button |
+  | `notice` | `{"status": "DOWNLOADING SPEECH MODEL 42%", "text": "detail", "level": "info"}`; `level` `error` draws it red; empty status clears | persistent status shown whenever nothing else is happening (state `notice` / `error`); the panel stays up and the idle failsafe and the post-conversation hide are suspended until it is cleared |
   | `jobs` | `{"n": 2, "names": ["a", "b"]}` (a plain integer string also works) | WORKING status, plus a "Working: a, b" line (names sanitised, at most 3) |
   | `end` | | status STANDBY, hide a few seconds later (stays up while jobs run) |
+
+  **Speech model download.** `speechmodel.py` checks the Hugging Face cache without downloading
+  (`whisper_cached()`: `config.json` plus `weights.safetensors` or `weights.npz`). If the model is
+  missing at startup the hub logs `Whisper model not downloaded yet; downloading now (large, one
+  time)` and downloads it in a background thread (progress = cache folder size against the repo's
+  total file size from the Hub API, logged every 10 percent or 30 s, shown as `notice`). A wake
+  word meanwhile gives Tink and a spoken status line, and never loads or runs Whisper
+  (`load_whisper` is only reached once the cache check is true). Failure shows
+  `SPEECH MODEL DOWNLOAD FAILED`, logs the exact error and retries with backoff (3 min doubling to
+  15 min). Missing Kokoro files or wake word models log a clear line instead of hanging.
 
   A background thread in the hub runs `claude agents --json` every 6 s and emits `jobs`.
 - **HUD commands** (panel -> hub, `state/ui_commands.jsonl`, same format): `{"k":"stop"}` from the

@@ -10,6 +10,9 @@ Events (one JSON per line, {"k": kind, "t": text}):
   level     t = mic level "0".."1" (<= 4/s while listening), drawn as a thin bar by the avatar
   heard     t = clear | unsure | ignored: tag shown for a few seconds after each transcription
   stopped   the request was cancelled: status 'CANCELLED - LISTENING' plus a Retry button
+  notice    t = '{"status": "DOWNLOADING SPEECH MODEL 42%", "text": "short detail", "level": "info"}'
+            persistent status shown while nothing else is happening, and the panel stays up while
+            it is set; level "error" draws it red. Empty status (or t = "") clears it.
   jobs      t = '{"n": 2, "names": ["a", "b"]}' (or a plain integer string)
 Commands (panel -> hub, one JSON per line appended to ui_commands.jsonl in the state dir):
   {"k":"stop"} from the Cancel button (shown while Thinking/Speaking),
@@ -80,9 +83,11 @@ COLORS = {            # state -> (r, g, b)
     "think":  (1.00, 0.68, 0.18),
     "speak":  (0.45, 0.95, 1.00),
     "work":   (1.00, 0.78, 0.25),
+    "notice": (0.55, 0.75, 1.00),
+    "error":  (1.00, 0.35, 0.35),
 }
 LABELS = {"idle": "STANDBY", "listen": "LISTENING", "think": "THINKING", "speak": "SPEAKING",
-          "work": "WORKING"}
+          "work": "WORKING", "notice": "NOTICE", "error": "ERROR"}
 ACCENT = (0.20, 0.88, 1.00)
 
 
@@ -108,8 +113,10 @@ class OrbView(NSView):
         R = min(b.size.width, b.size.height) / 2 - 2
         t, st = self.t, self.state
         c = COLORS[st]
-        spin = {"idle": 0.25, "listen": 0.7, "think": 3.2, "speak": 1.6, "work": 2.0}[st]
-        pulse = {"idle": 0.04, "listen": 0.10, "think": 0.18, "speak": 0.30, "work": 0.14}[st]
+        spin = {"idle": 0.25, "listen": 0.7, "think": 3.2, "speak": 1.6, "work": 2.0,
+                "notice": 1.0, "error": 0.4}[st]
+        pulse = {"idle": 0.04, "listen": 0.10, "think": 0.18, "speak": 0.30, "work": 0.14,
+                 "notice": 0.08, "error": 0.12}[st]
         wob = 1 + pulse * (math.sin(t * 5.0) * 0.6 + math.sin(t * 8.3 + 1) * 0.4)
 
         # soft glow
@@ -277,6 +284,7 @@ class View:
         self.level = 0.0
         self.heard_until = 0.0
         self.ended = False
+        self.notice, self.notice_text, self.notice_err = "", "", False
         self.ticks = 0
         self.build()
 
@@ -400,6 +408,9 @@ class View:
             state, text = "listen", "CANCELLED \u00b7 LISTENING"
         elif self.jobs and (not s or low.startswith("standby")):
             state, text = "work", f"WORKING · {self.jobs} BACKGROUND JOB{'S' if self.jobs != 1 else ''}"
+        elif self.notice and (not s or low.startswith("standby")):
+            state = "error" if self.notice_err else "notice"
+            text = self.notice.upper()
         else:
             state = ("listen" if low.startswith("listening") else
                      "think" if low.startswith("thinking") else
@@ -425,9 +436,11 @@ class View:
 
     def refresh_lines(self):
         """Activity line (replaces the subtitle while busy) and the background-jobs line."""
-        self.sub.setStringValue_(self.activity.upper() if self.activity
-                                 else "VOICE ASSISTANT // ONLINE")
-        self.sub.setTextColor_(rgba(COLORS["think"], 0.9) if self.activity else rgba(ACCENT, 0.45))
+        detail = self.activity or (self.notice_text if self.notice else "")
+        self.sub.setStringValue_(detail.upper() if detail else "VOICE ASSISTANT // ONLINE")
+        self.sub.setTextColor_(rgba(COLORS["think"], 0.9) if self.activity
+                               else rgba(COLORS["error" if self.notice_err else "notice"], 0.9)
+                               if detail else rgba(ACCENT, 0.45))
         self.jobsline.setStringValue_(self.jobs_text())
 
     def send_command(self, k):
@@ -490,7 +503,32 @@ class View:
             self.ended = True
             self.hide_at = None
             self.activity, self.think_t0 = "", None
+            self.notice, self.notice_text, self.notice_err = "", "", False
             self.panel.orderOut_(None)
+            return
+        if k == "notice":
+            try:
+                d = json.loads(t) if t.startswith("{") else {"status": t}
+            except ValueError:
+                d = {"status": t}
+            self.notice = str(d.get("status") or "")[:60]
+            self.notice_text = str(d.get("text") or "")[:70] if self.notice else ""
+            self.notice_err = d.get("level") == "error"
+            if self.notice:                 # keep the panel up for as long as the notice lasts
+                self.hide_at = None
+                if not self.panel.isVisible():
+                    self.clear()
+                    self.panel.orderFrontRegardless()
+                if self.ended or self.state in ("idle", "work", "notice", "error"):
+                    self.set_status("Standby")
+                else:
+                    self.refresh_lines()
+            else:
+                self.refresh_lines()
+                if self.ended or self.state in ("notice", "error"):
+                    self.set_status("Standby")
+                    if not self.jobs and self.panel.isVisible():
+                        self.hide_at = time.time() + HIDE_AFTER
             return
         if k == "activity":
             self.activity = t[:60]
@@ -531,7 +569,7 @@ class View:
                 self.set_status("Standby")
                 if self.jobs and STAY_WHILE_WORKING:
                     self.hide_at = None
-                elif not self.jobs and self.panel.isVisible():
+                elif not self.jobs and not self.notice and self.panel.isVisible():
                     self.hide_at = time.time() + HIDE_AFTER
             return
         if k == "wake":
@@ -561,7 +599,7 @@ class View:
             self.ended = True
             self.activity, self.think_t0 = "", None
             self.set_status("Standby")
-            self.hide_at = (None if (self.jobs and STAY_WHILE_WORKING)
+            self.hide_at = (None if ((self.jobs and STAY_WHILE_WORKING) or self.notice)
                             else time.time() + HIDE_AFTER)
 
     def tick(self):
@@ -584,7 +622,7 @@ class View:
             self.hide_at = None
             dbg("hidden (conversation ended)")
         elif (self.panel.isVisible() and time.time() - self.last_event > IDLE_HIDE
-              and not (self.jobs and STAY_WHILE_WORKING)):
+              and not (self.jobs and STAY_WHILE_WORKING) and not self.notice):
             self.panel.orderOut_(None)
             self.ended = True
             dbg("hidden (idle failsafe)")

@@ -138,11 +138,29 @@ cd ~/jarvis-voice-hub
 ./setup.sh
 ```
 
+The two big downloads (Kokoro files, about 350 MB, and the Whisper model, about 1.6 GB) happen
+here, in setup, after the user's single confirmation and before the service is installed or the
+hub is ever started. They show progress bars. Your shell may not show live output, so do not run
+`./setup.sh` and wait silently: run it in the background with its output in a log file, for
+example `./setup.sh > /tmp/jarvis-setup.log 2>&1 &`, and poll the end of the log (`tail -c 600
+/tmp/jarvis-setup.log`; progress bars redraw with carriage returns) every 30 to 60 seconds. At
+each poll tell the user, in plain words, where it is ("downloading the speech model: 40 percent").
+Never stay silent, and do not interrupt a slow download: pauses are normal. Do not move on to
+`--check` or `--install-service` until the log ends with `== done.` and the process exited with
+status 0. If it failed, report the exact error and follow "do not improvise".
+
 Then save the mode chosen in step 5 (see there), and run the check:
 
 ```sh
 .venv/bin/python hub.py --check
 ```
+
+A missing Whisper model is a failure, not a warning: `--check` prints `[MISSING] Whisper model:
+MISSING: run ./setup.sh (a large one-time download)` and exits with status 1. Fix it (rerun
+`./setup.sh`, with progress reports as above) and run `--check` again before installing the
+service. If the hub is ever started without the model it downloads it in the background, logs
+`Whisper model not downloaded yet; downloading now`, and the panel shows `DOWNLOADING SPEECH
+MODEL n%`; that is a fallback, not the install path.
 
 Report the result of each command in plain language. In the `--check` output, everything should be
 OK (optional helpers may be flagged), the `profile` line must show the mode the user chose (and

@@ -28,7 +28,7 @@ for t in defaultmic micusers; do
     -o "$HOME_DIR/bin/$t" "$DIR/native/$t.c"
 done
 
-echo "== Kokoro model files into $HOME_DIR/models (SHA-256 verified)"
+echo "== Kokoro model files into $HOME_DIR/models (SHA-256 verified; about 350 MB in total, a progress bar shows each download)"
 # Source: $KOKORO_BASE (kokoro-onnx GitHub release "model-files-v1.0"). Upstream publishes no
 # checksums; these were computed from the files downloaded from that release and their sizes
 # match the release's Content-Length (kokoro-v1.0.onnx 325532387 bytes, voices-v1.0.bin
@@ -76,13 +76,15 @@ if [ "$LAUNCHD" = 1 ]; then
   echo "== --launchd is now: $PY $DIR/hub.py --install-service (run it after --check passes; add --dry-run to preview)"
 fi
 
-echo "== downloading the Whisper speech model (a large one-time download, over 1 GB; can take several minutes)"
+echo "== downloading the Whisper speech model (a large one-time download: about 1.6 GB, can take several minutes)"
+echo "   A progress bar follows. If it seems to pause, it is still downloading: this is normal, do not interrupt."
+unset HF_HUB_DISABLE_PROGRESS_BARS   # keep Hugging Face's progress bars on, whatever the caller's environment says
 "$PY" - <<'PYEOF'
 import os
 from huggingface_hub import snapshot_download
 repo = os.environ.get("VOICE_HUB_WHISPER", "mlx-community/whisper-large-v3-turbo")
-print("   model repo:", repo)
-print("   cached at:", snapshot_download(repo))
+print("   model repo:", repo, flush=True)
+print("   cached at:", snapshot_download(repo), flush=True)
 PYEOF
 
 echo "== done. Next: $PY $DIR/hub.py --check"

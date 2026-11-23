@@ -28,6 +28,7 @@ import numpy as np
 import sounddevice as sd
 
 import config as C
+import speechmodel
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG = C.LOG
@@ -130,6 +131,15 @@ class Commands:
 
 
 CMDS = Commands()
+
+
+def notice(status, text="", error=False):
+    """Persistent panel state (e.g. the model download). Empty status clears it."""
+    ui("notice", json.dumps({"status": status, "text": text, "level": "error" if error else "info"})
+       if status else "")
+
+
+SPEECH = speechmodel.SpeechModel(log, notice, C.WHISPER_MODEL)   # Whisper download state; started in main() if missing
 
 
 def is_stop_phrase(text):
@@ -347,12 +357,21 @@ class Models:
 
     def load_kokoro_async(self):
         def load():
-            from kokoro_onnx import Kokoro
-            self.kokoro = Kokoro(C.KOKORO_MODEL, C.KOKORO_VOICES)
+            try:
+                for p in (C.KOKORO_MODEL, C.KOKORO_VOICES):
+                    if not os.path.exists(p):
+                        raise FileNotFoundError(f"{p} is missing - run ./setup.sh")
+                from kokoro_onnx import Kokoro
+                self.kokoro = Kokoro(C.KOKORO_MODEL, C.KOKORO_VOICES)
+            except Exception as e:
+                self.kokoro = None
+                log(f"Kokoro (speech output) failed to load: {e!r} - replies will be silent")
         self._kt = threading.Thread(target=load, daemon=True)
         self._kt.start()
 
     def load_whisper(self):  # MLX: must run on the main thread
+        if not SPEECH.ready:                 # never start a silent 1 GB download from here
+            raise RuntimeError("Whisper model not in the cache yet")
         import mlx.core as mx
         from mlx_whisper.transcribe import ModelHolder
         ModelHolder.get_model(C.WHISPER_MODEL, mx.float16)
@@ -375,6 +394,8 @@ class Models:
         """Speak `text`. With an Interrupter, the HUD button or '<wake word>, stop' cuts it
         short. Returns True if the user stopped it."""
         self._kt.join()
+        if self.kokoro is None:              # load failure already logged
+            return False
         samples, rate = self.kokoro.create(text, voice=C.KOKORO_VOICE, speed=C.KOKORO_SPEED,
                                            lang="en-us")
         if intr is None:
@@ -561,6 +582,8 @@ class Interrupter:
         """Wake word just fired: listen ~3 s for a stop phrase. True = stop requested."""
         stop = False
         try:
+            if not SPEECH.ready:                # still downloading: cannot listen for a stop phrase
+                return False
             if not self.models.whisper_ready:
                 self.models.load_whisper()
             audio = self.mic.utterance(3.0, levels=False)
@@ -627,13 +650,19 @@ def main():
     import signal
     signal.signal(signal.SIGUSR1, _request_restart)   # restart.sh: restart after the current sentence
     from openwakeword.model import Model
-    wake = Model(wakeword_models=[C.WAKE_WORD_MODEL], inference_framework="onnx")
+    try:
+        wake = Model(wakeword_models=[C.WAKE_WORD_MODEL], inference_framework="onnx")
+    except Exception as e:
+        log(f"wake word model '{C.WAKE_WORD_MODEL}' failed to load: {e!r} - run ./setup.sh "
+            "(it downloads the openWakeWord models) or check VOICE_HUB_WAKE_MODEL")
+        sys.exit(1)
     brain, models, mic = Brain(), Models(), Mic()
     CMDS.reset()
     intr = Interrupter(mic, wake, models)
     start_ui()
     threading.Thread(target=jobs_watcher, daemon=True).start()
     log(f"standby - say the wake word ({C.WAKE_WORD_MODEL})")
+    SPEECH.start()                          # no-op when the Whisper model is already cached
     try:                                    # announce that we're back up
         models.load_kokoro_async()
         models.speak(f"{NAME} is online.")
@@ -689,6 +718,17 @@ def main():
         ui("wake")
         log("wake")
         models.load_kokoro_async()
+        if not SPEECH.ready:                # model still downloading: say so, do not try Whisper
+            msg = SPEECH.say()
+            log(f"wake while the speech model is not ready: {msg!r}")
+            ui("assistant", msg)
+            models.speak(msg)
+            ui("end")
+            models.unload()
+            mic.drain()
+            wake.reset()
+            levels = []
+            continue
         models.load_whisper()               # mic keeps buffering meanwhile
         wait = C.ONSET_WAIT
         last_text, after_stop = "", False
@@ -814,6 +854,9 @@ def check(mic=False):
               "run commands or edit files. Read README 'Security: read this first'.")
     line(os.path.exists(C.KOKORO_MODEL), "Kokoro model", C.KOKORO_MODEL)
     line(os.path.exists(C.KOKORO_VOICES), "Kokoro voices", C.KOKORO_VOICES)
+    wpath = speechmodel.cached_path(C.WHISPER_MODEL)
+    line(bool(wpath), "Whisper model:",
+         f"cached at {wpath}" if wpath else speechmodel.MISSING_HINT)
     line(os.path.exists(C.DEFAULTMIC), "defaultmic helper (optional)", C.DEFAULTMIC)
     line(os.path.exists(C.MICUSERS), "micusers helper (optional)", C.MICUSERS)
     try:
