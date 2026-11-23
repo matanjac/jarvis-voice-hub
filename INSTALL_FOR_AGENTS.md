@@ -28,12 +28,12 @@ Run `uname -m` and `sw_vers -productVersion`.
 - The macOS version must be 14 or newer (the first number is 14 or more). If older, stop and
   explain that they need to update macOS first.
 
-## Step 2. Check Claude Code is logged in
+## Step 2. Check the `claude` command is available
 
-Run `claude --version`. Then ask the user whether they have signed in to Claude Code on this Mac.
-If `claude` is missing or they are not signed in, do nothing else: tell them to open a new
-Terminal window, run `claude` once, and complete the sign-in in the browser, then start again.
-(The hub's "brain" is a Claude Code session under their own account.)
+You are running inside Claude Code, so the user is already signed in: do not ask them about it.
+Only run `claude --version` to confirm the `claude` command is on the PATH, because the hub starts
+it as a separate process (its "brain", under the user's own account). If the command is not found
+in a normal terminal, tell the user and stop; do not try to install or sign in on their behalf.
 
 ## Step 3. Check and, if needed, install the tools
 
