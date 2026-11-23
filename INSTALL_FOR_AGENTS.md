@@ -127,7 +127,10 @@ Rules for the answer:
 
 Tell the user what `./setup.sh` does: creates a Python environment in the repo folder, installs
 pinned packages, downloads the Kokoro speech model (about 350 MB, checksum verified), compiles two
-small microphone helpers from `native/*.c`, and writes only inside the repo folder and
+small microphone helpers from `native/*.c`, downloads the Whisper speech model from Hugging Face
+(a large one-time download, over 1 GB, which can take several minutes: tell the user it is normal
+and do not interrupt it; without it the hub looks stuck on LISTENING at the first wake word),
+and writes only inside the repo folder and
 `~/.config/jarvis-voice-hub`. About 2.5 GB in total, a few minutes. After confirmation:
 
 ```sh

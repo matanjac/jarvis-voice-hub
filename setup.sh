@@ -76,4 +76,13 @@ if [ "$LAUNCHD" = 1 ]; then
   echo "== --launchd is now: $PY $DIR/hub.py --install-service (run it after --check passes; add --dry-run to preview)"
 fi
 
+echo "== downloading the Whisper speech model (a large one-time download, over 1 GB; can take several minutes)"
+"$PY" - <<'PYEOF'
+import os
+from huggingface_hub import snapshot_download
+repo = os.environ.get("VOICE_HUB_WHISPER", "mlx-community/whisper-large-v3-turbo")
+print("   model repo:", repo)
+print("   cached at:", snapshot_download(repo))
+PYEOF
+
 echo "== done. Next: $PY $DIR/hub.py --check"
