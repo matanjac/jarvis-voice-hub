@@ -99,7 +99,7 @@ def arc(cx, cy, r, a0, a1, width, color):
 
 
 class OrbView(NSView):
-    """Arc-reactor style avatar that changes with state: calm ring when listening,
+    """Glowing orb avatar that changes with state: calm ring when listening,
     fast amber spin when thinking, a pulsing waveform halo when speaking."""
 
     def drawRect_(self, rect):
@@ -136,7 +136,7 @@ class OrbView(NSView):
                 p.setLineWidth_(1.6)
                 rgba(c, 0.9).set()
                 p.stroke()
-        # inner triangle (arc-reactor)
+        # inner triangle
         tri = NSBezierPath.bezierPath()
         for i in range(3):
             ang = t * spin * 0.5 + i * 2 * math.pi / 3 + math.pi / 2
