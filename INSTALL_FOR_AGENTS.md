@@ -71,8 +71,10 @@ repository was not found, stop and tell the user (the repository may not be publ
 Read the section "Security: read this first" in `~/jarvis-voice-hub/README.md`, then tell the user
 in plain words, in your own short summary:
 
-- The microphone is an open door to an AI agent. Anyone or anything it can hear (a guest, a child,
-  a TV, a video call) can give it commands. There is no voice ID; the wake word is public.
+- It only acts after the wake word, but that is the only gate. Anyone or anything that says the
+  wake phrase (a guest, a child, a TV, a video) can start a conversation, the detector can also
+  false-trigger, and for a few seconds afterwards everything it hears is treated as your next
+  instruction. There is no voice ID, and the wake word is public.
 - Text the agent reads (files, web pages) can try to give it instructions (prompt injection).
 - Therefore it runs in `plan` mode (read-only tools) with brain isolation on, in an empty scratch
   folder, and you will not change that.

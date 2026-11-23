@@ -30,8 +30,8 @@ installed and logged in. The instructions Claude follows are in [INSTALL_FOR_AGE
 ## Install with Claude Code
 
 This is the longer, manual-friendly version of the easy install at the top (the short prompt plus
-[INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md) is the recommended path; both end in the same `./setup.sh`). Read "Security: read this first" below before you run the hub: the microphone is
-an open door to the agent.
+[INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md) is the recommended path; both end in the same `./setup.sh`). Read "Security: read this first" below before you run the hub: the wake word is the only
+gate: anyone or anything that says it (a guest, a TV, a video) can start a conversation with the agent.
 
 **Status of these instructions:** the feature set was tested on the developer's Mac (macOS 27.0,
 Apple Silicon). **The full install flow below has not yet been tested on a clean machine.** The
