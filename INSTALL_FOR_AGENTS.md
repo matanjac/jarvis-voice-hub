@@ -10,8 +10,11 @@ yes before every non-trivial step (installing a tool, running `./setup.sh`, star
 - Do not use `sudo`. Never ask for, see, read or type the user's Mac password.
 - Do not run anything that is not in this repository, with one exception: the official Homebrew
   installer from https://brew.sh, and only if Homebrew is missing and the user agrees.
-- Do not change the security defaults: leave the permission mode at `plan` and brain isolation on.
-  Do not set `VOICE_HUB_PERMISSION_MODE`, `VOICE_HUB_ISOLATE` or `VOICE_HUB_TOOLS`.
+- Security settings: the default is the `safe` profile (plan mode, isolation on). The only way it
+  changes is the single question in step 5, answered by the user. You write ONLY the chosen word
+  to `~/.config/jarvis-voice-hub/profile` (via `hub.py --set-profile`, step 6) and never edit any
+  other settings or permission file. Do not set `VOICE_HUB_PERMISSION_MODE`, `VOICE_HUB_ISOLATE`,
+  `VOICE_HUB_TOOLS` or `VOICE_HUB_PROFILE`, and never touch the user's own Claude Code settings.
 - Do not start the hub (`hub.py` without `--check`) before the user confirms that macOS microphone
   permission is ready for their terminal app (step 7).
 - Do not improvise. If any command fails, stop, show the exact command and its exact error, give the
@@ -76,11 +79,47 @@ in plain words, in your own short summary:
   false-trigger, and for a few seconds afterwards everything it hears is treated as your next
   instruction. There is no voice ID, and the wake word is public.
 - Text the agent reads (files, web pages) can try to give it instructions (prompt injection).
-- Therefore it runs in `plan` mode (read-only tools) with brain isolation on, in an empty scratch
-  folder, and you will not change that.
+- By default it runs in `plan` mode (read-only tools) with brain isolation on, in an empty scratch
+  folder. That is the `safe` profile.
 - Transcripts of what it hears are saved on this Mac in `~/.config/jarvis-voice-hub/state/hub.log`.
 
-Ask whether they understand and want to continue.
+Ask whether they understand and want to continue. Then ask exactly ONE plain question:
+
+> Which mode: 1) safe read-only (recommended, default), 2) use my own Claude Code permissions,
+> 3) full power (can run commands, edit files, start helpers)?
+
+Explain each option in two sentences, including the risk:
+
+1. **safe** (profile `safe`): it can only read and search files in an empty scratch folder; it
+   cannot run commands, edit files, browse the web or use your tools. The worst a stranger or a TV
+   can do is make it read and speak what is in that folder.
+2. **own permissions** (profile `own-settings`): it uses your own Claude Code settings and MCP
+   servers, but anything your settings do not already allow is refused. Whatever you pre-approved
+   there, anyone or anything that says the wake word (a guest, a TV, a video), or text it reads
+   (prompt injection), can then use.
+3. **full power** (profile `full`): it can run commands, edit files and start background helpers
+   and report back by voice, without asking. Anyone or anything that says the wake word, a TV, a
+   guest, or prompt injection from text it reads can then act with all those powers on this Mac.
+
+Rules for the answer:
+
+- If the user does not answer, or is unsure, use `safe`.
+- For option 3, make the user type the word `FULL` themselves to confirm. Anything else means `safe`.
+- Remember the answer; save it right after `./setup.sh` finishes in step 6 (that creates the
+  environment). Save only the chosen word, nothing else, with one of these (this creates the file
+  with owner-only permissions):
+
+  ```sh
+  .venv/bin/python hub.py --set-profile safe
+  .venv/bin/python hub.py --set-profile own-settings
+  .venv/bin/python hub.py --set-profile full --confirm FULL
+  ```
+
+  Do not edit any other file or setting. If `safe` was chosen you may skip this command, since
+  `safe` is the default.
+- Tell the user how to change it later: run the same command with another word, or edit the
+  one-word file `~/.config/jarvis-voice-hub/profile`, or set `VOICE_HUB_PROFILE`, then restart the
+  hub. `hub.py --check` always shows the active profile.
 
 ## Step 6. Run setup and the check
 
@@ -92,12 +131,17 @@ small microphone helpers from `native/*.c`, and writes only inside the repo fold
 ```sh
 cd ~/jarvis-voice-hub
 ./setup.sh
+```
+
+Then save the mode chosen in step 5 (see there), and run the check:
+
+```sh
 .venv/bin/python hub.py --check
 ```
 
 Report the result of each command in plain language. In the `--check` output, everything should be
-OK (optional helpers may be flagged), the permission mode must read `plan`, and the `claude` CLI
-must be found. If something fails, apply the rule "do not improvise".
+OK (optional helpers may be flagged), the `profile` line must show the mode the user chose (and
+the one-line summary and any warning must match it), and the `claude` CLI must be found. If something fails, apply the rule "do not improvise".
 
 ## Step 7. Microphone permission, then start
 

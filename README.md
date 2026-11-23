@@ -13,7 +13,7 @@ An independent hobby project, not affiliated with, endorsed by, or sponsored by 
 Open Claude Code on your Mac and paste this:
 
 ```text
-Install https://github.com/matanjac/jarvis-voice-hub on this Mac. Clone it over HTTPS (no GitHub account needed), then read INSTALL_FOR_AGENTS.md in the repo and follow it exactly. Ask me before installing anything. Never change the security settings. If anything fails, stop and tell me the exact error.
+Install https://github.com/matanjac/jarvis-voice-hub on this Mac. Clone it over HTTPS (no GitHub account needed), then read INSTALL_FOR_AGENTS.md in the repo and follow it exactly. Ask me before installing anything. Never change the security settings unless I choose a different mode when you ask. If anything fails, stop and tell me the exact error.
 ```
 
 Claude explains each step and asks before it does it. It will install, only if missing and only
@@ -55,7 +55,7 @@ first run on a second Mac is that test; treat any surprise as a bug to report.
 ### 2. A longer prompt (alternative to the short one at the top)
 
 ```text
-Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matanjac/jarvis-voice-hub into ~/jarvis-voice-hub over HTTPS (no GitHub login is needed; if the clone fails with an authentication error, stop and tell me, and do not look for or use any credentials). Read INSTALL_FOR_AGENTS.md and README.md (especially "Security: read this first" and "Install with Claude Code") and docs/ARCHITECTURE.md before doing anything else. Then run ./setup.sh and afterwards `.venv/bin/python hub.py --check`. If any step fails, do not improvise or work around it: report the exact failing command, its error output and the fix from the README troubleshooting table (or say that none is documented), and wait for me. Do not use sudo or run any script that is not in the repo. Do not change the security defaults: leave the permission mode at `plan`, leave brain isolation on, and do not set VOICE_HUB_PERMISSION_MODE, VOICE_HUB_ISOLATE or VOICE_HUB_TOOLS. Do not start the hub (`hub.py` without --check) until I confirm that macOS microphone permission is granted to my terminal app. Before that, tell me exactly what to expect: macOS shows a dialog asking whether the terminal app may access the microphone, which I must answer Allow; it can be granted or fixed afterwards under System Settings > Privacy & Security > Microphone by switching my terminal app on (the terminal appears in that list only after its first microphone request, so on a fresh Mac it may be missing until the first start). When I say I am ready, start the hub in a foreground terminal with `.venv/bin/python hub.py` (not launchd, not in the background) so I can watch the log and stop it with Ctrl-C. Then tell me what to try: say "hey jarvis", wait for the Tink sound, then ask "what time is it" and then "what is in this folder". The floating panel should appear at the bottom right, show LISTENING, then THINKING with a seconds timer and an activity line, show CANCEL while it works, show my words with a "Heard clearly" tag, speak the reply aloud and show SPEAKING; after a few seconds of silence it should play a Bottle sound and hide. Finish by walking me through the post-install checklist in the README and reporting which items passed.
+Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matanjac/jarvis-voice-hub into ~/jarvis-voice-hub over HTTPS (no GitHub login is needed; if the clone fails with an authentication error, stop and tell me, and do not look for or use any credentials). Read INSTALL_FOR_AGENTS.md and README.md (especially "Security: read this first" and "Install with Claude Code") and docs/ARCHITECTURE.md before doing anything else. Then run ./setup.sh and afterwards `.venv/bin/python hub.py --check`. If any step fails, do not improvise or work around it: report the exact failing command, its error output and the fix from the README troubleshooting table (or say that none is documented), and wait for me. Do not use sudo or run any script that is not in the repo. Do not change the security defaults unless I choose a different mode when you ask (INSTALL_FOR_AGENTS.md says how, and it only ever writes one word to ~/.config/jarvis-voice-hub/profile). Do not start the hub (`hub.py` without --check) until I confirm that macOS microphone permission is granted to my terminal app. Before that, tell me exactly what to expect: macOS shows a dialog asking whether the terminal app may access the microphone, which I must answer Allow; it can be granted or fixed afterwards under System Settings > Privacy & Security > Microphone by switching my terminal app on (the terminal appears in that list only after its first microphone request, so on a fresh Mac it may be missing until the first start). When I say I am ready, start the hub in a foreground terminal with `.venv/bin/python hub.py` (not launchd, not in the background) so I can watch the log and stop it with Ctrl-C. Then tell me what to try: say "hey jarvis", wait for the Tink sound, then ask "what time is it" and then "what is in this folder". The floating panel should appear at the bottom right, show LISTENING, then THINKING with a seconds timer and an activity line, show CANCEL while it works, show my words with a "Heard clearly" tag, speak the reply aloud and show SPEAKING; after a few seconds of silence it should play a Bottle sound and hide. Finish by walking me through the post-install checklist in the README and reporting which items passed.
 ```
 
 ### 3. Troubleshooting
@@ -77,7 +77,7 @@ Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matan
 | No sound or no spoken reply | Output device muted, or Kokoro failed | Check volume; read the end of `~/.config/jarvis-voice-hub/state/hub.log` |
 | HUD never appears | `ui.py` failed to start | `cat ~/.config/jarvis-voice-hub/state/ui.err` |
 | "another jarvis-voice-hub is already running" | A previous hub is still running | Quit it with Ctrl-C in its terminal, or `./restart.sh` |
-| Replies say tools are unavailable or the brain refuses to edit files | Intended: default `plan` mode is read-only | Leave it. Changing it is a security decision, see "Security" |
+| Replies say tools are unavailable or the brain refuses to edit files | Intended: the default `safe` profile is read-only | Leave it, or choose another profile (a security decision, see "Security") |
 
 ### 4. Uninstall
 
@@ -95,7 +95,7 @@ The delete commands are deliberately not scripted here: check the paths, then re
 
 ### 5. After install: what to verify
 
-- [ ] `hub.py --check` has no `[MISSING]` lines except the optional helpers, and prints permission mode `plan`.
+- [ ] `hub.py --check` has no `[MISSING]` lines except the optional helpers, and prints profile `safe` (or the profile you chose).
 - [ ] The log shows `mic check: level ... - ok`, not `SILENT`.
 - [ ] You hear "Jarvis is online." at start, and the wake word gives a Tink and the panel shows LISTENING.
 - [ ] After you speak, the panel shows your words with a tag ("Heard clearly" or "Unsure") and the log shows `heard (...)`.
@@ -122,11 +122,27 @@ that the microphone can hear can talk to that agent.**
   channel: anything it reads may be read aloud.
 - **Permissive modes turn both of those into remote code execution.** The original private
   version ran Claude Code in an auto-approve permission mode. **This public version defaults to
-  `plan` (intended read-only; enforced by tool allowlist and denylist, see Brain isolation).** Change it only if you accept
-  the risk: `VOICE_HUB_PERMISSION_MODE` = `plan` (default), `manual`, `dontAsk`, `acceptEdits`,
-  `auto`, `bypassPermissions`. The hub logs a warning at startup, and `--check` prints one, when
-  a permissive mode is configured. Note that in the non-interactive `claude -p` mode used here
-  nobody can click "Allow", so restrictive modes mean tools that need approval will not run.
+  the `safe` profile: `plan` mode (intended read-only; enforced by tool allowlist and denylist,
+  see Brain isolation).** You choose how much power it has with one setting, the profile (table
+  below). Choose more only if you accept the risk. The hub logs a warning at startup, and
+  `--check` prints the active profile, a one-line summary of what the agent can and cannot do, and
+  a warning for `own-settings` and `full`. In the non-interactive `claude -p` mode used here
+  nobody can click "Allow", so anything that needs approval is denied.
+- **Power profiles.** Set `VOICE_HUB_PROFILE`, or save one word in
+  `~/.config/jarvis-voice-hub/profile` (created `0600`; the env var wins if both exist; the
+  installer can write it with `hub.py --set-profile NAME`, and `full` needs `--confirm FULL`).
+
+  | Profile | Permission mode | Isolation | Tools | What it can do |
+  |---|---|---|---|---|
+  | `safe` (default) | `plan` | on | `Read,Grep,Glob`; Bash, Edit, Write, web denied | read and search the empty scratch folder only |
+  | `own-settings` | `default` | off (your settings, MCP servers and hooks load) | whatever your own settings allow | only what you already pre-approved in your own Claude Code settings; everything else is denied |
+  | `full` | `auto` | off | all tools | run commands, edit files, start background helpers, report back by voice |
+
+  In all profiles the working folder is the scratch folder. Unknown profile names fall back to
+  `safe`. The explicit variables `VOICE_HUB_PERMISSION_MODE` (`plan`, `manual`, `dontAsk`,
+  `acceptEdits`, `auto`, `bypassPermissions`, `default`), `VOICE_HUB_ISOLATE` (`0` or `1`) and
+  `VOICE_HUB_TOOLS` (comma list, used when isolation is on) override the profile; `--check`
+  notes when they do.
 - **Run it in a scratch folder.** The brain's working directory defaults to
   `~/.config/jarvis-voice-hub/workspace`, an empty folder. Do not point `VOICE_HUB_WORKSPACE` at a
   repository, your home folder or a folder with secrets. Do not run it in a session that holds
@@ -164,10 +180,10 @@ Delete it whenever you like.
 
 The brain (`claude -p`) is started with `--strict-mcp-config` (none of your global MCP servers),
 `--setting-sources project` (your user-level settings, allow rules and hooks are not loaded),
-`--disable-slash-commands`, and `--tools Read,Grep,Glob` (override with `VOICE_HUB_TOOLS`). In the
-default `plan` mode, `Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch` are also explicitly
-denied. Set `VOICE_HUB_ISOLATE=0` to switch this off, in which case the brain inherits your normal
-Claude Code setup (not recommended). These flags exist in Claude Code 2.1.330. The file tools are
+`--disable-slash-commands`, and `--tools Read,Grep,Glob` (override with `VOICE_HUB_TOOLS`); this is
+the `safe` profile. In `plan` mode, `Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch` are also explicitly
+denied. The `own-settings` and `full` profiles (or `VOICE_HUB_ISOLATE=0`) switch isolation off, in
+which case the brain inherits your normal Claude Code setup and all tools (not recommended). These flags exist in Claude Code 2.1.330. The file tools are
 still not confined to the workspace folder, so keep sensitive files out of reach of the account.
 
 ## What it does (and only this)
@@ -247,7 +263,10 @@ Say the wake word, wait for the Tink, and talk. To start at login, `./setup.sh -
 | `VOICE_HUB_NAME` | `Jarvis` | name used in the greeting, HUD and system prompt |
 | `VOICE_HUB_WAKE_MODEL` | `hey_jarvis` | openWakeWord model name or path to a `.onnx` file |
 | `VOICE_HUB_WAKE_THRESHOLD` | `0.5` | wake sensitivity |
-| `VOICE_HUB_PERMISSION_MODE` | `plan` | Claude Code permission mode for the brain (see Security) |
+| `VOICE_HUB_PROFILE` | `safe` | `safe`, `own-settings` or `full`; else read from `~/.config/jarvis-voice-hub/profile` (see Security) |
+| `VOICE_HUB_PERMISSION_MODE` | from profile (`plan`) | overrides the profile's permission mode |
+| `VOICE_HUB_ISOLATE` | from profile (`1`) | `0` turns brain isolation off, `1` on; overrides the profile |
+| `VOICE_HUB_TOOLS` | `Read,Grep,Glob` | tool allowlist when isolation is on; overrides the profile |
 | `VOICE_HUB_WORKSPACE` | `~/.config/jarvis-voice-hub/workspace` | brain working directory |
 | `VOICE_HUB_MODEL` | `sonnet` | Claude model alias |
 | `VOICE_HUB_WHISPER` | `mlx-community/whisper-large-v3-turbo` | Whisper repo |

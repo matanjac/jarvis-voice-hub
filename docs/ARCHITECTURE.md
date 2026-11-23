@@ -26,7 +26,7 @@
                                  ▼                            ▼
                         state/ui_events.jsonl        `claude -p` (persistent subprocess)
                                  │                   cwd = scratch workspace
-                                 ▼                   --permission-mode plan (default)
+                                 ▼                   --permission-mode from profile (plan = safe, default)
                        ui.py  floating HUD           session id -> state/brain_session.txt
                        (PyObjC, own process)
 ```
@@ -92,5 +92,6 @@
 ## Trust boundaries
 
 Everything audible is untrusted input to the brain; everything the brain reads (files, web, other
-sessions) is untrusted input too. The only controls are the permission mode passed to
-`claude -p`, the scratch working directory and the system prompt. See README "Security".
+sessions) is untrusted input too. The only controls are the profile (`safe`, `own-settings`, `full`; read from
+`VOICE_HUB_PROFILE` or `~/.config/jarvis-voice-hub/profile`), which sets the permission mode, isolation
+flags and tool allowlist passed to `claude -p`, the scratch working directory and the system prompt. See README "Security".

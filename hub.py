@@ -217,7 +217,7 @@ class Brain:
                                      text=True, bufsize=1)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
         log(f"brain started (pid {self.proc.pid}, model {C.BRAIN_MODEL}, "
-            f"permission mode {C.PERMISSION_MODE}, isolated {C.ISOLATE_BRAIN}, cwd {C.WORKSPACE})")
+            f"profile {C.PROFILE}, permission mode {C.PERMISSION_MODE}, isolated {C.ISOLATE_BRAIN}, cwd {C.WORKSPACE})")
 
     ACTIVITY = {"Read": "Reading a file", "Grep": "Searching files", "Glob": "Searching files",
                 "Bash": "Running a command", "WebSearch": "Searching the web",
@@ -766,6 +766,14 @@ def check():
     print(f"home dir         : {C.HOME_DIR}")
     print(f"wake word model  : {C.WAKE_WORD_MODEL} (threshold {C.WAKE_THRESHOLD})")
     print(f"whisper model    : {C.WHISPER_MODEL}")
+    print(f"profile          : {C.PROFILE} (from {C.PROFILE_SOURCE})")
+    if C.PROFILE_NOTE:
+        print(f"WARNING: {C.PROFILE_NOTE}")
+    print(f"what it can do   : {C.profile_summary()}")
+    if C.PROFILE != "safe" or C.PERMISSION_MODE != "plan" or not C.ISOLATE_BRAIN:
+        print("WARNING: this is not the safe read-only mode. Anyone or anything that says the wake "
+              "word (a guest, a TV, a video) or text it reads (prompt injection) can act with these "
+              "powers. Switch back with: .venv/bin/python hub.py --set-profile safe")
     print(f"brain            : claude -p, model {C.BRAIN_MODEL}, permission mode "
           f"{C.PERMISSION_MODE}, cwd {C.WORKSPACE}")
     print(f"brain isolation  : {'on (tools: ' + C.BRAIN_TOOLS + ')' if C.ISOLATE_BRAIN else 'OFF - brain inherits your Claude Code settings and MCP servers'}")
@@ -800,7 +808,17 @@ if __name__ == "__main__":
                     "brain. Configuration is via environment variables; see config.py and README.")
     ap.add_argument("--check", action="store_true",
                     help="verify configuration, models, helpers and the claude CLI, then exit")
+    ap.add_argument("--set-profile", choices=list(C.PROFILES), metavar="PROFILE",
+                    help="save the profile (safe, own-settings, full) to " + C.PROFILE_FILE + " and exit")
+    ap.add_argument("--confirm", default="", help="type FULL here to confirm --set-profile full")
     args = ap.parse_args()
+    if args.set_profile:
+        if args.set_profile == "full" and args.confirm != "FULL":
+            print("full power needs confirmation: add  --confirm FULL", file=sys.stderr)
+            sys.exit(2)
+        C.write_profile(args.set_profile)
+        print(f"profile set to '{args.set_profile}' in {C.PROFILE_FILE}; restart the hub to apply")
+        sys.exit(0)
     if args.check:
         sys.exit(check())
     C.ensure_dirs()
@@ -813,7 +831,7 @@ if __name__ == "__main__":
     with C.private_open(C.HUB_PID, "w") as f:
         f.write(str(os.getpid()))
     if C.PERMISSION_MODE in C.PERMISSIVE_MODES:
-        log(f"WARNING: permission mode '{C.PERMISSION_MODE}' - anyone who can be heard can "
+        log(f"WARNING: profile {C.PROFILE}, permission mode '{C.PERMISSION_MODE}' - anyone who can be heard can "
             "make the brain run commands")
     try:
         main()

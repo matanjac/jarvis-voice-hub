@@ -50,20 +50,100 @@ KOKORO_SPEED = float(os.environ.get("KOKORO_SPEED", "1.15"))
 
 # ---- brain (headless Claude Code) -----------------------------------------------------
 BRAIN_MODEL = os.environ.get("VOICE_HUB_MODEL", "sonnet")
-# SECURITY: anyone who can be heard by the microphone can steer the brain. The default is the
-# restrictive "plan" mode (read-only analysis, no edits, no shell commands). Other choices:
-# manual, dontAsk, acceptEdits, auto, bypassPermissions. Read README "Security" first.
-PERMISSION_MODE = os.environ.get("VOICE_HUB_PERMISSION_MODE", "plan")
+# SECURITY: anyone who can be heard by the microphone can steer the brain. How much power it
+# has is chosen by ONE setting, the profile (read README "Security" first):
+#   safe         (default) plan mode, isolation on, tools Read,Grep,Glob only, no shell/edit/web.
+#   own-settings isolation off: the brain inherits YOUR Claude Code settings, MCP servers and
+#                allow rules, but runs in the normal "default" permission mode, so in headless
+#                mode anything your own settings do not pre-approve is denied.
+#   full         permission mode "auto", all tools, isolation off: it can run commands, edit
+#                files and start background helpers. Anyone who can be heard can do the same.
+# The profile comes from VOICE_HUB_PROFILE, else from the one-word file PROFILE_FILE, else
+# "safe". The explicit variables VOICE_HUB_PERMISSION_MODE, VOICE_HUB_ISOLATE and
+# VOICE_HUB_TOOLS (comma list) still work and win over the profile.
+PROFILES = {
+    "safe":         {"mode": "plan",    "isolate": True,  "tools": "Read,Grep,Glob"},
+    "own-settings": {"mode": "default", "isolate": False, "tools": "Read,Grep,Glob"},
+    "full":         {"mode": "auto",    "isolate": False, "tools": "Read,Grep,Glob"},
+}
+PROFILE_FILE = os.path.join(HOME_DIR, "profile")
+
+
+def _read_profile_file():
+    try:
+        with open(PROFILE_FILE) as f:
+            return f.read().strip().lower()
+    except OSError:
+        return ""
+
+
+def resolve_profile(env=None, file_value=None):
+    """Return (name, note, source). Unknown values fall back to safe, with a note."""
+    env = os.environ if env is None else env
+    raw, source = env.get("VOICE_HUB_PROFILE", "").strip().lower(), "VOICE_HUB_PROFILE"
+    if not raw:
+        raw = _read_profile_file() if file_value is None else file_value
+        source = PROFILE_FILE
+    if not raw:
+        return "safe", "", "default"
+    if raw in PROFILES:
+        return raw, "", source
+    return "safe", f"unknown profile '{raw}' (from {source}); using safe", source
+
+
+def write_profile(name):
+    """Write ONLY the profile word to PROFILE_FILE, created/fixed to 0600."""
+    if name not in PROFILES:
+        raise ValueError(f"profile must be one of {', '.join(PROFILES)}")
+    os.makedirs(HOME_DIR, mode=0o700, exist_ok=True)
+    fd = os.open(PROFILE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, (name + "\n").encode())
+    finally:
+        os.close(fd)
+
+
+def effective_settings(profile, env=None):
+    """Profile defaults with the explicit variables applied on top. Returns (mode, isolate, tools)."""
+    env = os.environ if env is None else env
+    p = PROFILES[profile]
+    mode = env.get("VOICE_HUB_PERMISSION_MODE") or p["mode"]
+    iso_env = env.get("VOICE_HUB_ISOLATE")
+    isolate = p["isolate"] if iso_env is None else iso_env != "0"
+    tools = env.get("VOICE_HUB_TOOLS") or p["tools"]
+    return mode, isolate, tools
+
+
+PROFILE, PROFILE_NOTE, PROFILE_SOURCE = resolve_profile()
+PERMISSION_MODE, ISOLATE_BRAIN, BRAIN_TOOLS = effective_settings(PROFILE)
 PERMISSIVE_MODES = {"auto", "bypassPermissions", "acceptEdits"}
-# Brain isolation (on by default). The brain is started with --strict-mcp-config (none of your
-# global MCP servers), --setting-sources project (your user-level settings, allow rules, hooks
-# and CLAUDE.md are not loaded; only the scratch workspace's own .claude/ is), --disable-slash-
-# commands, and --tools limited to the allowlist below. In "plan" mode shell, edit, write and
-# web tools are also explicitly denied. Set VOICE_HUB_ISOLATE=0 to give the brain your normal
-# Claude Code setup (not recommended). Override the allowlist with VOICE_HUB_TOOLS (comma list).
-ISOLATE_BRAIN = os.environ.get("VOICE_HUB_ISOLATE", "1") != "0"
-BRAIN_TOOLS = os.environ.get("VOICE_HUB_TOOLS", "Read,Grep,Glob")
+# Isolation (safe profile): the brain is started with --strict-mcp-config (none of your global
+# MCP servers), --setting-sources project (your user-level settings, allow rules, hooks and
+# CLAUDE.md are not loaded; only the scratch workspace's own .claude/ is), --disable-slash-
+# commands, and --tools limited to BRAIN_TOOLS. In "plan" mode shell, edit, write and web tools
+# are also explicitly denied. With isolation off the brain gets your normal Claude Code setup
+# and all tools (BRAIN_TOOLS is then not passed).
 PLAN_DENY_TOOLS = "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
+
+
+def profile_summary():
+    """One plain-language line on what the agent can and cannot do (for --check and the log)."""
+    mode, iso = PERMISSION_MODE, ISOLATE_BRAIN
+    custom = (mode, iso, BRAIN_TOOLS) != effective_settings(PROFILE, {})
+    if mode == "plan" and iso:
+        s = (f"It can only read and search files in its empty scratch folder ({BRAIN_TOOLS}); it cannot "
+             "run commands, edit or write files, use the web, or use your MCP servers or settings.")
+    elif mode in PERMISSIVE_MODES:
+        s = ("It can run commands, edit files, start background helpers and use your settings"
+             + (" and MCP servers" if not iso else "") + " without asking.")
+    elif not iso:
+        s = ("It uses your own Claude Code settings and MCP servers, but anything your settings do not "
+             "pre-approve is denied because nobody can click Allow in headless mode.")
+    else:
+        s = f"Permission mode '{mode}' with tools {BRAIN_TOOLS}; unapproved actions are denied."
+    return s + (" (Customised by explicit VOICE_HUB_* variables.)" if custom else "")
+
 
 # ---- conversation timing --------------------------------------------------------------
 FOLLOWUP_WAIT = 7.0     # s of silence before the conversation ends
