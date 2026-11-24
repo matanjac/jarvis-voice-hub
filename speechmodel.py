@@ -39,6 +39,17 @@ def cached_path(repo=None):
     return None
 
 
+def local_model_dir(repo=None):
+    """Local snapshot directory of the cached model, resolved with local_files_only=True so no
+    network call is possible. Raises if the model is not cached (the download path is separate)."""
+    repo = repo or default_repo()
+    from huggingface_hub import snapshot_download
+    path = snapshot_download(repo, local_files_only=True)
+    if not os.path.isdir(path):
+        raise RuntimeError(f"cached model folder missing: {path}")
+    return path
+
+
 def whisper_cached(repo=None):
     return cached_path(repo) is not None
 

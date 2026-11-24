@@ -167,6 +167,44 @@ On disk: `~/.config/jarvis-voice-hub/state/` (created `0700`; log files `0600`) 
 which contains transcripts of what you said and what the assistant replied, plus the session id.
 Delete it whenever you like.
 
+## What leaves your Mac
+
+Your voice never leaves the Mac. Only the transcribed text goes to the Claude brain. Every place
+in this repo that can touch the network (audited by searching for urllib, requests, http, socket,
+websocket, curl and wget, and by reading every `subprocess` call):
+
+| Component | Runs where | What data | When |
+|---|---|---|---|
+| Wake word (openWakeWord), VAD (Silero) | Locally | Microphone audio, in memory only | Always; audio never leaves the Mac |
+| Whisper (mlx-whisper) | Locally | Microphone audio, in memory only | Every transcription. The hub loads the model from its local snapshot folder (`snapshot_download(..., local_files_only=True)`), so no Hugging Face lookup happens. `HF_HUB_DISABLE_TELEMETRY=1` and `DO_NOT_TRACK=1` are set before huggingface_hub is imported |
+| Kokoro (text-to-speech) | Locally | The reply text, to audio | Every spoken reply; nothing is sent |
+| `claude` brain (child process of the hub) | Your Claude Code, talking to Anthropic | The transcribed text, plus anything the agent reads (files, tool output). Never audio | Each request you speak. `claude agents --json` and `claude --version` also run locally at start-up |
+| `setup.sh` | Network, once | Downloads only: pip packages from PyPI, Kokoro model files from GitHub (SHA-256 checked), openWakeWord models from GitHub if not bundled, the Whisper model from Hugging Face | When you run setup. No audio or transcript is uploaded |
+| First-run model download (`speechmodel.py`) | Network, only if the Whisper model is not cached | Downloads only (model files from Hugging Face) | Once, in the background, if setup was skipped; never when the model is cached |
+| Logs | Locally | Transcripts and replies, in `~/.config/jarvis-voice-hub/state/hub.log` (directory `0700`, files `0600`) | Always; delete whenever you like |
+
+### Verify it yourself (no sudo)
+
+1. Find the hub's process id: `pgrep -f hub.py`.
+2. List its network connections: `lsof -i -a -p <pid>`. A normal run shows none at all. Repeat for
+   its children: `lsof -i -a -p $(pgrep -P <pid> | paste -sd, -)`. Run it while you speak a request.
+3. Live view, also without sudo: `nettop -p <pid>` (then the same for the child ids).
+4. Expected: during a request, connections only from the `claude` child process, to Anthropic.
+   The hub process itself, the Whisper, Kokoro and wake word code should show no connections.
+   Right after setup or if the model was missing, you may see Hugging Face connections from the
+   download, and only then.
+5. For a hard proof, use an outbound firewall such as Little Snitch or LuLu and deny everything
+   except the `claude` binary; the hub keeps working.
+
+### What this cannot guarantee
+
+The `claude` CLI is outside this project. Its own telemetry, error reporting and update checks
+follow your Claude Code settings; review Claude Code's data and privacy settings and what your
+account plan allows. What the agent reads can be sent to Anthropic, so keep sensitive files out of
+the workspace. This was verified by reading code and the installed mlx_whisper source, and by unit
+tests; it has not been verified with a live run under network monitoring, so please run the recipe
+above.
+
 ## Behaviors you might not expect
 
 - **Replies from background sessions can be spoken unprompted.** Results that arrive while you

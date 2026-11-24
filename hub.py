@@ -23,6 +23,10 @@ if __name__ == "__main__" and {"--install-service", "--uninstall-service", "--se
     if "--install-service" in _a:
         sys.exit(service.install(_dry, _out))
     sys.exit(service.uninstall(_dry) if "--uninstall-service" in _a else service.status())
+# No anonymous telemetry from huggingface_hub (set before anything imports it). Not HF_HUB_OFFLINE:
+# the explicit first-run model download in speechmodel.py needs the network.
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["DO_NOT_TRACK"] = "1"
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 import numpy as np
 import sounddevice as sd
@@ -374,12 +378,18 @@ class Models:
             raise RuntimeError("Whisper model not in the cache yet")
         import mlx.core as mx
         from mlx_whisper.transcribe import ModelHolder
-        ModelHolder.get_model(C.WHISPER_MODEL, mx.float16)
+        ModelHolder.get_model(self._whisper_path(), mx.float16)
         self.whisper_ready = True
+
+    @staticmethod
+    def _whisper_path():
+        """Local snapshot folder of the cached model. mlx_whisper only skips its snapshot_download
+        (a network metadata check) when given an existing directory, so never pass the repo id."""
+        return speechmodel.local_model_dir(C.WHISPER_MODEL)
 
     def transcribe(self, audio):
         import mlx_whisper
-        out = mlx_whisper.transcribe(audio, path_or_hf_repo=C.WHISPER_MODEL, language="en",
+        out = mlx_whisper.transcribe(audio, path_or_hf_repo=self._whisper_path(), language="en",
                                      condition_on_previous_text=False)
         allsegs = out.get("segments", [])
         # record Whisper's own confidence signals (logged; clips below MIN_LOGPROB are rejected further down)
