@@ -48,6 +48,15 @@ WHISPER_MODEL = os.environ.get("VOICE_HUB_WHISPER", "mlx-community/whisper-large
 KOKORO_VOICE = os.environ.get("KOKORO_VOICE", "af_heart")
 KOKORO_SPEED = float(os.environ.get("KOKORO_SPEED", "1.15"))
 
+# ---- playback ----------------------------------------------------------------------------
+# Output buffer in seconds: larger survives CPU stalls (choppy speech) at the cost of a slightly
+# later start and a slightly later cancel.
+PLAYBACK_LATENCY = float(os.environ.get("VOICE_HUB_PLAYBACK_LATENCY", "0.25"))
+# How often (s) the hub checks for a cancel while it speaks.
+SPEAK_POLL = float(os.environ.get("VOICE_HUB_SPEAK_POLL", "0.05"))
+# 0 = do not listen for the wake word while speaking (slow machines); the Cancel button still works.
+VOICE_CANCEL = os.environ.get("VOICE_HUB_VOICE_CANCEL", "1").strip().lower() not in ("0", "false", "no", "off")
+
 # ---- brain (headless Claude Code) -----------------------------------------------------
 BRAIN_MODEL = os.environ.get("VOICE_HUB_MODEL", "sonnet")
 # SECURITY: anyone who can be heard by the microphone can steer the brain. How much power it

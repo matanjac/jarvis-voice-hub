@@ -75,6 +75,7 @@ Install the project jarvis-voice-hub on this Mac. Clone https://github.com/matan
 | Wake word never triggers | Wrong input device, too quiet, or threshold | Check the `listening on:` line in the log; speak clearly 1 m away; try `VOICE_HUB_WAKE_THRESHOLD=0.35` |
 | Wake word triggers but the transcript is empty or "Ignored noise" | Whisper rejected the clip (low confidence) | Speak louder and closer; see `hub.log` for the `avg_logprob` |
 | Stuck on LISTENING after the first "Hey Jarvis" (older versions), or the panel says `DOWNLOADING SPEECH MODEL n%` | The Whisper speech model (~1.6 GB) was never downloaded (setup was skipped or interrupted). The hub now downloads it in the background; until it is done it answers the wake word with "I am still downloading my speech model, about N percent done" and does not transcribe | Watch progress with `tail -f ~/.config/jarvis-voice-hub/state/hub.log` (lines `Whisper model download: 40%`). To fetch it in the foreground with a progress bar, run `./setup.sh` (safe to repeat). `hub.py --check` reports `Whisper model: cached at ...` or `MISSING`. If the panel shows `SPEECH MODEL DOWNLOAD FAILED` (offline, disk full), the log has the exact error and the hub retries every few minutes |
+| Speech sounds choppy | Heavy CPU load from other jobs, a Bluetooth headset in call mode (low-quality audio), or memory pressure. `hub.log` shows lines like `playback: 3 underrun(s) in 6.2s of speech` when the audio buffer ran dry | Close heavy apps, use the built-in speakers, set `VOICE_HUB_VOICE_CANCEL=0` (no wake-word listening while speaking; the Cancel button still works), raise `VOICE_HUB_PLAYBACK_LATENCY` to `0.5`; then `./restart.sh` |
 | No sound or no spoken reply | Output device muted, or Kokoro failed | Check volume; read the end of `~/.config/jarvis-voice-hub/state/hub.log` |
 | HUD never appears | `ui.py` failed to start | `cat ~/.config/jarvis-voice-hub/state/ui.err` |
 | "another jarvis-voice-hub is already running" | A previous hub is still running | Quit it with Ctrl-C in its terminal, or `./restart.sh`; if the service is installed it is that one: `--uninstall-service` to stop it for good |
@@ -328,6 +329,9 @@ terminal app). `hub.py --check --mic` also records 1.5 s and warns if it is exac
 | `VOICE_HUB_MODEL` | `sonnet` | Claude model alias |
 | `VOICE_HUB_WHISPER` | `mlx-community/whisper-large-v3-turbo` | Whisper repo |
 | `KOKORO_VOICE`, `KOKORO_SPEED` | `af_heart`, `1.15` | TTS voice and speed |
+| `VOICE_HUB_PLAYBACK_LATENCY` | `0.25` | output buffer in seconds; raise to `0.5` if speech is choppy (cancel reacts slightly later) |
+| `VOICE_HUB_SPEAK_POLL` | `0.05` | seconds between cancel checks while the hub is speaking |
+| `VOICE_HUB_VOICE_CANCEL` | `1` | `0` stops listening for the wake word while speaking (for slow machines); the Cancel button still works |
 | `VOICE_HUB_HOME` | `~/.config/jarvis-voice-hub` | models, helpers, logs, state |
 
 The wake model name is only the *phrase you say*. The assistant name is separate: you can run

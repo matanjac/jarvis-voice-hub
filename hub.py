@@ -353,6 +353,75 @@ class Brain:
                 return "Sorry, that's taking too long. Check the screen."
 
 
+class Player:
+    """Plays one buffer on a dedicated thread with blocking writes and a large output buffer.
+    sd.play() drives a Python callback inside the same process that is busy listening; any
+    stall there is heard as choppy speech. Blocking writes release the GIL and have slack."""
+
+    CHUNK = 2048
+
+    def __init__(self, samples, rate):
+        self.samples = np.asarray(samples, dtype=np.float32).reshape(-1)
+        self.rate = rate
+        self.pos = 0
+        self.underruns = 0
+        self._stop = threading.Event()
+        self._pause = threading.Event()
+        self.done = threading.Event()
+        self.stream = sd.OutputStream(samplerate=rate, channels=1, dtype="float32",
+                                      latency=C.PLAYBACK_LATENCY, blocksize=self.CHUNK)
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self.stream.start()
+        self.thread.start()
+
+    def _run(self):
+        try:
+            n = len(self.samples)
+            while self.pos < n and not self._stop.is_set():
+                if self._pause.is_set():
+                    if self.stream.active:
+                        self.stream.stop()
+                    time.sleep(0.02)
+                    continue
+                if not self.stream.active:
+                    self.stream.start()
+                chunk = self.samples[self.pos:self.pos + self.CHUNK]
+                if self.stream.write(chunk.reshape(-1, 1)):      # True = the buffer ran dry
+                    self.underruns += 1
+                self.pos += len(chunk)
+            if not self._stop.is_set() and self.stream.active:
+                self.stream.stop()               # blocks until buffered audio has played
+        except Exception as ex:
+            if not self._stop.is_set():
+                log(f"playback error: {ex!r}")
+        finally:
+            if self.underruns:
+                log(f"playback: {self.underruns} underrun(s) in {len(self.samples) / self.rate:.1f}s of speech")
+            try:
+                self.stream.close()
+            except Exception:
+                pass
+            self.done.set()
+
+    def pause(self):
+        self._pause.set()
+        # the writer thread stops the stream; wait briefly so the mic gets a quiet room
+        time.sleep(0.05)
+
+    def resume(self):
+        self._pause.clear()
+
+    def stop(self):
+        self._stop.set()
+        try:
+            self.stream.abort()                  # silence at once
+        except Exception:
+            pass
+        self.done.wait(1.0)
+
+
 class Models:
     """Whisper + Kokoro, loaded per conversation and freed afterwards."""
 
@@ -408,31 +477,33 @@ class Models:
             return False
         samples, rate = self.kokoro.create(text, voice=C.KOKORO_VOICE, speed=C.KOKORO_SPEED,
                                            lang="en-us")
+        player = Player(samples, rate)
+        player.start()
         if intr is None:
-            sd.play(samples, rate)
-            sd.wait()
+            player.done.wait()
             return False
-        dur = len(samples) / rate
-        played, seg = 0.0, time.time()           # seconds already played / start of this segment
-        sd.play(samples, rate)
-        while played + (time.time() - seg) < dur + 0.15:
+        listen = C.VOICE_CANCEL
+        while not player.done.is_set():
             try:
                 if intr.button():
-                    sd.stop()
+                    player.stop()
                     return True
-                if intr.wake_fired():
-                    played += time.time() - seg
-                    sd.stop()                    # pause: also keeps our own voice out of the mic
-                    if intr.voice_stop():
-                        return True
-                    if played >= dur:
-                        break
-                    sd.play(samples[int(played * rate):], rate)       # not a stop: carry on
-                    seg = time.time()
+                if listen:
+                    if intr.wake_fired():          # waits <= 50 ms on the mic queue
+                        player.pause()             # also keeps our own voice out of the mic
+                        if intr.voice_stop():
+                            player.stop()
+                            return True
+                        player.resume()            # not a stop: carry on from where we paused
+                    else:
+                        time.sleep(C.SPEAK_POLL)
+                else:
+                    time.sleep(C.SPEAK_POLL)       # Cancel button only
             except Exception as ex:
                 log(f"speak interrupt check failed: {ex!r}")
                 time.sleep(0.05)
-        sd.wait()
+        if not listen:
+            intr.mic.drain()                       # mic frames queued up while we did not read them
         return False
 
     def unload(self):
