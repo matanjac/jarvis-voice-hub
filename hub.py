@@ -482,28 +482,20 @@ class Models:
         if intr is None:
             player.done.wait()
             return False
-        listen = C.VOICE_CANCEL
         while not player.done.is_set():
             try:
                 if intr.button():
                     player.stop()
                     return True
-                if listen:
-                    if intr.wake_fired():          # waits <= 50 ms on the mic queue
-                        player.pause()             # also keeps our own voice out of the mic
-                        if intr.voice_stop():
-                            player.stop()
-                            return True
-                        player.resume()            # not a stop: carry on from where we paused
-                    else:
-                        time.sleep(C.SPEAK_POLL)
-                else:
-                    time.sleep(C.SPEAK_POLL)       # Cancel button only
+                if intr.wake_fired():              # waits <= 50 ms on the mic queue
+                    player.pause()                 # also keeps our own voice out of the mic
+                    if intr.voice_stop():
+                        player.stop()
+                        return True
+                    player.resume()                # not a stop: carry on from where we paused
             except Exception as ex:
                 log(f"speak interrupt check failed: {ex!r}")
                 time.sleep(0.05)
-        if not listen:
-            intr.mic.drain()                       # mic frames queued up while we did not read them
         return False
 
     def unload(self):

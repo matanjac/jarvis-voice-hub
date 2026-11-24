@@ -129,14 +129,6 @@ class SpeakTests(unittest.TestCase):
         with mock.patch.object(FakeStream, "write", lambda s, d: time.sleep(0.01)):
             self.assertTrue(self.m.speak("x", self.intr(button=True)))
 
-    def test_voice_cancel_disabled_ignores_wake(self):
-        i = self.intr(wake=True, stop=True)
-        with mock.patch.object(hub.C, "VOICE_CANCEL", False), \
-                mock.patch.object(hub.C, "SPEAK_POLL", 0.001):
-            self.assertFalse(self.m.speak("x", i))
-        i.wake_fired.assert_not_called()
-        i.mic.drain.assert_called()
-
     def test_no_interrupter_plays_through(self):
         self.assertFalse(self.m.speak("x"))
         self.assertEqual(sum(FakeStream.instances[0].written), hub.Player.CHUNK * 100)
